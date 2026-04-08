@@ -1684,10 +1684,13 @@ function fencerPose(f) {
     return 'en-garde';
 }
 
+// Total height of the bout's top scoreboard (sits at y=0).
+function scoreboardH() { return isPortrait() ? 44 : 36; }
+
 function drawScoreRibbon() {
     var p = isPortrait();
-    var y = BAR_H + 2;
-    var h = p ? 36 : 30;
+    var y = 0;
+    var h = scoreboardH();
     ctx.fillStyle = COLOR_BG_DARK;
     ctx.fillRect(0, y, VIEW_W, h);
     ctx.fillStyle = 'rgba(255,255,255,0.2)';
@@ -1904,19 +1907,11 @@ function drawBout() {
     ctx.fillStyle = COLOR_BG;
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
-    drawBar('', '', '');
+    // Scoreboard at the very top (no separate bar, no quit button — quick match)
     drawScoreRibbon();
 
-    // Quit button — sits inside the top bar on the right (no longer collides
-    // with the score ribbon below the bar)
-    var qW = p ? 60 : 54;
-    var qH = BAR_H - 6;
-    drawButton(VIEW_W - qW - 6 - SAFE_X, 3, qW, qH, 'Quit', false);
-    _btnQuit = { x: VIEW_W - qW - 6 - SAFE_X, y: 3, w: qW, h: qH };
-
-    // Crowd — fixed height, sits just below the score ribbon
-    var ribbonH = p ? 38 : 32;
-    var crowdTop = BAR_H + ribbonH;
+    // Crowd — fixed height, sits just below the scoreboard
+    var crowdTop = scoreboardH();
     var crowdH = p ? 44 : 50;
     drawCrowd(crowdTop, crowdH);
 
