@@ -1,10 +1,12 @@
-var CACHE_NAME = 'pixel-fencing-v5';
+var CACHE_NAME = 'pixel-fencing-v6';
 var ASSETS = [
   '/',
   '/index.html',
   '/game.js',
   '/fencers.json',
   '/assets/PressStart2P.ttf',
+  '/assets/favicon.png',
+  '/assets/apple-touch-icon.png',
   '/manifest.json'
 ];
 
