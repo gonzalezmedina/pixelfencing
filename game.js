@@ -1494,9 +1494,10 @@ function drawTitle() {
     var midSpaceCY = Math.round((midSpaceTop + midSpaceBottom) / 2);
 
     // drawFencer renders 19 logical px tall * 1.8 internal scale = 34.2 * size pixels.
-    // Cap so the sprite uses at most 70% of midSpaceH.
-    var maxSpriteH = midSpaceH * 0.70;
-    var spriteSize = Math.max(1.5, Math.min(p ? 4.4 : 3.4, maxSpriteH / (19 * 1.8)));
+    // Cap so the sprite uses at most 70% (landscape) / 78% (portrait) of midSpaceH.
+    var fillRatio = p ? 0.78 : 0.70;
+    var maxSpriteH = midSpaceH * fillRatio;
+    var spriteSize = Math.max(1.5, Math.min(p ? 4.84 : 3.4, maxSpriteH / (19 * 1.8)));
     var spritePxH = 19 * 1.8 * spriteSize;
     // Place feet on the piste; piste sits a little below midSpaceCY so the
     // sprite's BODY (not feet) ends up roughly at midSpaceCY.
@@ -1514,7 +1515,15 @@ function drawTitle() {
     }
     if (!titleFencer && FENCERS.length) titleFencer = FENCERS[0];
     if (titleFencer) {
-        drawFencer(VIEW_W / 2, pisteCY, titleFencer, spriteSize, 'right', 'en-garde', 0);
+        // Idle animation: slow footwork bob + blade slowly extending and
+        // retracting (like a fencer testing distance / warming up).
+        var t = performance.now();
+        var titleBob = Math.floor(t / 320);
+        // Sine wave 0..1 over a 2.4-second cycle. Keep mostly extended (offset
+        // 0.55 + 0.45*sin) so the blade is visible most of the time.
+        var titleBladeExt = 0.55 + 0.45 * Math.sin(t / 380);
+        drawFencer(VIEW_W / 2, pisteCY, titleFencer, spriteSize, 'right', 'en-garde', 0,
+            { bobFrame: titleBob, bladeExt: titleBladeExt });
     }
 
     var savedTourney = !!loadTournament();
