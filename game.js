@@ -726,8 +726,8 @@ function drawTutorial() {
     var p = isPortrait();
     ctx.fillStyle = 'rgba(0,0,0,0.78)';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-    var dlgW = p ? VIEW_W - 30 : 380;
-    var dlgH = p ? VIEW_H - 80 : 290;
+    var dlgW = p ? VIEW_W - 30 : 440;
+    var dlgH = p ? VIEW_H - 80 : 340;
     var dlgX = Math.round((VIEW_W - dlgW) / 2);
     var dlgY = Math.round((VIEW_H - dlgH) / 2);
     drawPixelRoundRect(dlgX, dlgY, dlgW, dlgH, 4, COLOR_GOLD);
@@ -739,55 +739,60 @@ function drawTutorial() {
     ctx.fillStyle = COLOR_GOLD;
     ctx.fillText('HOW TO FENCE', dlgX + dlgW / 2, dlgY + (p ? 26 : 22));
 
-    var lineH = p ? 16 : 13;
-    var ly = dlgY + (p ? 56 : 46);
+    var lineH = p ? 15 : 12;
+    var ly = dlgY + (p ? 54 : 44);
     var leftX = dlgX + 20;
-    var rightX = dlgX + dlgW - 20;
-    ctx.font = 'bold ' + (p ? 9 : 7) + 'px ' + FONT;
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#fff';
 
+    // ── Controls table ──
+    ctx.font = 'bold ' + (p ? 9 : 7) + 'px ' + FONT;
     var rows;
     if (_isTouchDevice) {
         rows = [
-            ['LEFT BUTTON',  'Retreat'],
-            ['RIGHT BUTTON', 'Advance'],
-            ['LUNGE BUTTON', 'Attack — first to lunge gets PRIORITY'],
-            ['PARRY BUTTON', 'Block — flips priority, opens riposte'],
-            ['',            ''],
-            ['FIRST TO 5',  'touches wins the bout']
+            ['HOLD LEFT/RIGHT', 'Walk along the piste'],
+            ['TAP',             'Attack with a lunge'],
+            ['SWIPE DOWN',      'Block the opponent']
         ];
     } else {
         rows = [
-            ['\u2190 \u2192',  'Move along the piste'],
-            ['\u2191 / SPACE', 'Lunge — first to attack gets PRIORITY'],
-            ['\u2193',         'Parry — block + flip priority'],
-            ['ESC',           'Quit'],
-            ['',              ''],
-            ['FIRST TO 5',    'touches wins the bout']
+            ['\u2190 \u2192',   'Walk along the piste'],
+            ['\u2191 / SPACE',  'Attack with a lunge'],
+            ['\u2193',          'Block the opponent'],
+            ['ESC',             'Quit']
         ];
     }
     for (var i = 0; i < rows.length; i++) {
-        if (rows[i][0]) {
-            ctx.textAlign = 'left'; ctx.fillStyle = COLOR_GOLD;
-            ctx.fillText(rows[i][0], leftX, ly);
-            ctx.textAlign = 'left'; ctx.fillStyle = '#fff';
-            ctx.fillText(rows[i][1], leftX + (p ? 130 : 100), ly);
-        }
+        ctx.textAlign = 'left'; ctx.fillStyle = COLOR_GOLD;
+        ctx.fillText(rows[i][0], leftX, ly);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(rows[i][1], leftX + (p ? 150 : 105), ly);
         ly += lineH;
     }
 
-    // Priority explainer
-    ctx.font = (p ? 8 : 7) + 'px ' + FONT;
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(255,255,255,0.65)';
-    ctx.fillText('Counter-attacks without priority do NOT score.', dlgX + dlgW / 2, ly + 4);
-    ctx.fillText('Parry an attack to take priority and riposte!',  dlgX + dlgW / 2, ly + 16);
+    // ── Plain-language rules ──
+    ly += p ? 8 : 6;
+    ctx.font = (p ? 9 : 7) + 'px ' + FONT;
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    var rules = [
+        'The first fencer to attack has the upper',
+        'hand. If they hit, they score a point.',
+        '',
+        'If you don\'t have the upper hand, BLOCK',
+        'first to take it back — then attack to score.',
+        '',
+        'Both attack at once: no one scores.',
+        '',
+        'First to 5 points wins the bout!'
+    ];
+    for (var ri = 0; ri < rules.length; ri++) {
+        if (rules[ri]) ctx.fillText(rules[ri], leftX, ly);
+        ly += p ? 13 : 10;
+    }
 
     // Got it button
     var btnH = p ? 44 : 32;
     var btnW = p ? 200 : 160;
-    var btnY = dlgY + dlgH - btnH - 16;
+    var btnY = dlgY + dlgH - btnH - 14;
     drawButton(dlgX + dlgW / 2 - btnW / 2, btnY, btnW, btnH, 'Got It', true);
     _tutorialBtn = { x: dlgX + dlgW / 2 - btnW / 2, y: btnY, w: btnW, h: btnH };
 }
@@ -1044,8 +1049,8 @@ function startParry(f, opp) {
         f.flash = 350;
         boutAttacker = f.side;
         boutSimul = false;
-        boutMsg = 'PARRY!';
-        boutMsgT = 700;
+        boutMsg = 'BLOCKED! NOW ATTACK!';
+        boutMsgT = 800;
         // Bright metallic clink
         playSfx([[NOTE.E5, 30], [NOTE.B5, 50], [NOTE.E5, 30]], 'triangle', 0.14);
     }
@@ -1069,38 +1074,38 @@ function tryHit(attacker, defender) {
         defender.flash = 350;
         boutAttacker = defender.side;
         boutSimul = false;
-        boutMsg = 'PARRY!';
-        boutMsgT = 700;
+        boutMsg = 'BLOCKED! NOW ATTACK!';
+        boutMsgT = 800;
         playSfx([[NOTE.E5, 30], [NOTE.B5, 50], [NOTE.E5, 30]], 'triangle', 0.14);
         return;
     }
 
     if (boutSimul) {
-        // Simultaneous — no touch
-        boutMsg = 'SIMULTANEOUS';
-        boutMsgT = 1100;
-        boutHaltT = 1100;
+        // Both attacked at once — no point
+        boutMsg = 'BOTH ATTACKED — NO POINT';
+        boutMsgT = 1300;
+        boutHaltT = 1300;
         state = S_BOUT_HALT;
         playSfx([[NOTE.A4, 80], [NOTE.A4, 80]], 'square', 0.10);
         return;
     }
 
     if (boutAttacker === attacker.side) {
-        // Valid touch — attacker has priority
+        // Valid hit — attacker had the upper hand
         attacker.touches++;
         defender.flash = 600;
         defender.act = 'touched';
         defender.actT = 1200;
-        boutMsg = (attacker.side === 1 ? 'TOUCH LEFT!' : 'TOUCH RIGHT!');
+        boutMsg = (attacker.side === 1 ? 'POINT FOR YOU!' : 'POINT FOR CPU');
         boutMsgT = 1400;
         boutHaltT = 1400;
         state = S_BOUT_HALT;
         playSfx([[NOTE.E5, 60], [NOTE.A5, 100], [NOTE.E6, 220]], 'square', 0.16);
     } else {
-        // Counter-attack hit — no score
-        boutMsg = 'NO TOUCH';
-        boutMsgT = 900;
-        boutHaltT = 900;
+        // Hit landed but they didn't have priority — no score
+        boutMsg = (attacker.side === 1 ? 'TOO LATE — THEY ATTACKED FIRST' : 'YOU BLOCKED IT');
+        boutMsgT = 1100;
+        boutHaltT = 1100;
         state = S_BOUT_HALT;
         playSfx([[NOTE.A4, 80], [NOTE.F4, 120]], 'square', 0.10);
     }
@@ -1161,6 +1166,7 @@ function updateBout(dt) {
             bp2.pos = mid + minGap / 2;
         }
 
+        updateTouchHold();
         updateAI(dt);
         updateFencer(bp1, bp2, dt);
         updateFencer(bp2, bp1, dt);
@@ -1715,16 +1721,23 @@ function drawScoreRibbon() {
 
 function drawPriorityIndicator(yCenter) {
     if (boutAttacker === 0) return;
-    var f = boutAttacker === 1 ? bp1 : bp2;
-    var x = pisteX(f.pos);
+    // Show the indicator above the PLAYER (bp1) regardless of who has the
+    // upper hand — the label tells the player what to do, not who has it.
+    //   Player has upper hand: gold "ATTACK" — go land your hit
+    //   CPU has upper hand:    red  "BLOCK!" — parry to take it back
+    var x = pisteX(bp1.pos);
     var arrowY = yCenter - 38;
-    ctx.fillStyle = COLOR_GOLD;
-    ctx.font = 'bold 8px ' + FONT;
+    var playerHasIt = (boutAttacker === 1);
+    var label, color;
+    if (boutSimul) { label = 'CLASH';   color = '#ffaa44'; }
+    else if (playerHasIt) { label = 'ATTACK'; color = COLOR_GOLD; }
+    else { label = 'BLOCK!'; color = '#ff5555'; }
+    ctx.fillStyle = color;
+    ctx.font = 'bold 9px ' + FONT;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    var label = boutSimul ? 'SIMUL' : 'PRIORITY';
     ctx.fillText(label, x, arrowY - 6);
-    // Arrow
+    // Arrow pointing down to the player
     ctx.beginPath();
     ctx.moveTo(x - 5, arrowY);
     ctx.lineTo(x + 5, arrowY);
@@ -1796,53 +1809,33 @@ function drawBoutMessage(yCenter) {
     ctx.fillText(boutMsg, VIEW_W / 2, by + h / 2 + 1);
 }
 
-// Touch button hit-rects for the bout — set by drawBoutTouchControls
-var _btnRetreat = { x:0, y:0, w:0, h:0 };
-var _btnAdvance = { x:0, y:0, w:0, h:0 };
-var _btnLunge   = { x:0, y:0, w:0, h:0 };
-var _btnParry   = { x:0, y:0, w:0, h:0 };
-var _btnQuit    = { x:0, y:0, w:0, h:0 };
+// Touch gesture state for the bout. Mobile uses no on-screen buttons —
+// instead: hold left/right half = walk, tap = lunge, swipe down = parry,
+// swipe up = lunge.
+var _touchStartX = 0, _touchStartY = 0, _touchStartT = 0;
+var _touchActive = false;
+var _touchSwipeFired = false;
+var TOUCH_SWIPE_DIST = 22;
+var TOUCH_TAP_MS = 200;
+var TOUCH_HOLD_MS = 180;
 
-// Height of the touch button row at the bottom of a bout. Used by drawBout
-// to know where the playable area ends.
-function boutTouchControlsH() {
-    if (!_isTouchDevice) return 0;
-    var p = isPortrait();
-    var pad = p ? 10 : 8;
-    var btnH = p ? 56 : 44;
-    return btnH + pad * 2;
-}
-
-function drawBoutTouchControls() {
-    // 4-button row at the bottom of the bout screen.
-    var p = isPortrait();
-    var pad = p ? 10 : 8;
-    var btnH = p ? 56 : 44;
-    var areaY = VIEW_H - btnH - pad;
-    var groupGap = p ? 12 : 10;
-    var pairW = (VIEW_W - pad * 2 - groupGap) / 2;
-    var btnW = (pairW - pad) / 2;
-    // Left pair (movement)
-    var lx = pad;
-    drawButton(lx, areaY, btnW, btnH, '\u2190', false);
-    _btnRetreat = { x: lx, y: areaY, w: btnW, h: btnH };
-    drawButton(lx + btnW + pad, areaY, btnW, btnH, '\u2192', false);
-    _btnAdvance = { x: lx + btnW + pad, y: areaY, w: btnW, h: btnH };
-    // Right pair (combat) — Lunge (primary, gold), Parry (secondary)
-    var rx = pad + pairW + groupGap;
-    drawButton(rx, areaY, btnW, btnH, 'PARRY', false);
-    _btnParry = { x: rx, y: areaY, w: btnW, h: btnH };
-    drawButton(rx + btnW + pad, areaY, btnW, btnH, 'LUNGE', true);
-    _btnLunge = { x: rx + btnW + pad, y: areaY, w: btnW, h: btnH };
-}
+function boutTouchControlsH() { return 0; } // no buttons anymore
 
 function drawBoutControlsHint(yBottom) {
-    if (_isTouchDevice) { drawBoutTouchControls(); return; }
+    if (_isTouchDevice) {
+        // Brief reminder at the very bottom edge
+        ctx.font = '7px ' + FONT;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.fillText('HOLD LEFT/RIGHT TO MOVE   TAP TO ATTACK   SWIPE DOWN TO BLOCK',
+            VIEW_W / 2, yBottom);
+        return;
+    }
     if (isPortrait()) return;
     ctx.font = '7px ' + FONT;
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.fillText('\u2190 \u2192 MOVE      \u2191 LUNGE      \u2193 PARRY      ESC QUIT',
+    ctx.fillText('\u2190 \u2192 MOVE      \u2191 ATTACK      \u2193 BLOCK      ESC QUIT',
         VIEW_W / 2, yBottom);
 }
 
@@ -1914,8 +1907,7 @@ function drawBout() {
 
     drawPriorityIndicator(pisteY);
     drawBoutMessage(pisteY);
-    if (!_isTouchDevice) drawBoutControlsHint(VIEW_H - 14);
-    else drawBoutTouchControls();
+    drawBoutControlsHint(VIEW_H - 12);
 
     // Result overlay
     if (state === S_BOUT_RESULT) {
@@ -2552,20 +2544,60 @@ function onPointerDown(e) {
         return;
     }
     if (state === S_BOUT_PLAY && _isTouchDevice) {
-        if (pointInRect(pt, _btnQuit))    { exitBout(); return; }
-        if (pointInRect(pt, _btnLunge))   { startLunge(bp1, bp2); return; }
-        if (pointInRect(pt, _btnParry))   { startParry(bp1, bp2); return; }
-        if (pointInRect(pt, _btnRetreat)) { bp1Keys.retreat = true; bp1Keys.advance = false; return; }
-        if (pointInRect(pt, _btnAdvance)) { bp1Keys.advance = true; bp1Keys.retreat = false; return; }
+        // Begin a gesture: record start, no immediate action.
+        _touchStartX = pt.x;
+        _touchStartY = pt.y;
+        _touchStartT = performance.now();
+        _touchActive = true;
+        _touchSwipeFired = false;
+    }
+}
+
+function onPointerMove(e) {
+    if (state !== S_BOUT_PLAY || !_isTouchDevice || !_touchActive || _touchSwipeFired) return;
+    if (e.preventDefault) e.preventDefault();
+    var pt = canvasCoords(e);
+    if (pt.x < 0) return;
+    var dx = pt.x - _touchStartX;
+    var dy = pt.y - _touchStartY;
+    var ax = Math.abs(dx), ay = Math.abs(dy);
+    if (Math.max(ax, ay) < TOUCH_SWIPE_DIST) return;
+    _touchSwipeFired = true;
+    // Vertical swipe → lunge or parry
+    if (ay > ax) {
+        if (dy < 0) startLunge(bp1, bp2);
+        else        startParry(bp1, bp2);
+        bp1Keys.advance = false;
+        bp1Keys.retreat = false;
+    } else {
+        // Horizontal swipe → start walking that direction (held until release)
+        if (dx > 0) { bp1Keys.advance = true;  bp1Keys.retreat = false; }
+        else        { bp1Keys.retreat = true;  bp1Keys.advance = false; }
     }
 }
 
 function onPointerUp(e) {
-    if (state === S_BOUT_PLAY && _isTouchDevice) {
-        // Touch ended — release any held movement
+    if (state === S_BOUT_PLAY && _isTouchDevice && _touchActive) {
+        var dt = performance.now() - _touchStartT;
+        // Quick tap with no swipe → lunge
+        if (!_touchSwipeFired && dt < TOUCH_TAP_MS) {
+            startLunge(bp1, bp2);
+        }
         bp1Keys.advance = false;
         bp1Keys.retreat = false;
+        _touchActive = false;
     }
+}
+
+// Called every frame from updateBout — promotes a long touch into a "hold to
+// walk" once it's clearly not a tap or swipe.
+function updateTouchHold() {
+    if (state !== S_BOUT_PLAY || !_isTouchDevice || !_touchActive || _touchSwipeFired) return;
+    var dt = performance.now() - _touchStartT;
+    if (dt < TOUCH_HOLD_MS) return;
+    // Held without swipe → walk in direction of touch start half
+    if (_touchStartX < VIEW_W / 2) { bp1Keys.retreat = true;  bp1Keys.advance = false; }
+    else                            { bp1Keys.advance = true;  bp1Keys.retreat = false; }
 }
 
 // Helpers for grid navigation in 4-col layouts
@@ -2808,8 +2840,10 @@ function init() {
     window.addEventListener('resize', resize);
     canvas.addEventListener('mousedown', onPointerDown);
     canvas.addEventListener('touchstart', onPointerDown, { passive: false });
+    canvas.addEventListener('touchmove', onPointerMove, { passive: false });
     canvas.addEventListener('mouseup', onPointerUp);
     canvas.addEventListener('touchend', onPointerUp, { passive: false });
+    canvas.addEventListener('touchcancel', onPointerUp, { passive: false });
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     // When the window loses focus, drop all held keys so the fencer doesn't drift forever
