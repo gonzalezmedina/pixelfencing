@@ -342,12 +342,12 @@ function isPortrait() { return VIEW_H > VIEW_W; }
 // draw() pass calls drawFocusBorder() to overlay a pulsing gold border.
 //
 var _focusedRect = null;
-var titleFocus = 0;        // 0=Tournament 1=Practice 2=Roster 3=Difficulty 4=Settings
-var TITLE_FOCUS_COUNT = 5;
+var titleFocus = 0;        // 0=Tournament 1=Practice 2=Roster 3=Settings
+var TITLE_FOCUS_COUNT = 4;
 var fsFocusIdx = 0;        // 0..15 = grid cell, 16=Back, 17=Start
 var rosterFocusIdx = 0;    // 0..15 = grid cell, 16=Back
-var settingsFocus = 0;     // 0=Sound 1=Music 2=Tutorial 3=Delete 4=Close (or 0=Delete 1=Cancel in confirm)
-var SETTINGS_FOCUS_COUNT = 5;
+var settingsFocus = 0;     // 0=Sound 1=Music 2=Difficulty 3=Tutorial 4=Delete 5=Close
+var SETTINGS_FOCUS_COUNT = 6;
 var bracketFocus = 1;      // 0=Quit 1=Continue (Continue is the natural default)
 
 function drawFocusBorder() {
@@ -666,7 +666,7 @@ function drawSettings() {
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     var dlgW = p ? VIEW_W - 40 : 340;
-    var dlgH = p ? 420 : 290;
+    var dlgH = p ? 470 : 332;
     var dlgX = Math.round((VIEW_W - dlgW) / 2);
     var dlgY = Math.round((VIEW_H - dlgH) / 2);
     drawPixelRoundRect(dlgX, dlgY, dlgW, dlgH, 4, COLOR_GOLD);
@@ -691,6 +691,9 @@ function drawSettings() {
         drawButton(bx, by, bw, bh, 'Music: ' + (musicOn ? 'ON' : 'OFF'), musicOn);
         _settingsRects.music = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap;
+        drawButton(bx, by, bw, bh, 'Difficulty: ' + _diffNames[difficulty], false);
+        _settingsRects.difficulty = { x: bx, y: by, w: bw, h: bh };
+        by += bh + gap;
         drawButton(bx, by, bw, bh, 'How to Play', false);
         _settingsRects.tutorial = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap;
@@ -700,7 +703,7 @@ function drawSettings() {
         drawButton(bx, by, bw, bh, 'Close', true);
         _settingsRects.close = { x: bx, y: by, w: bw, h: bh };
         // Focus
-        var fkeys = ['sound', 'music', 'tutorial', 'del', 'close'];
+        var fkeys = ['sound', 'music', 'difficulty', 'tutorial', 'del', 'close'];
         _focusedRect = _settingsRects[fkeys[settingsFocus]] || null;
     } else {
         // Confirmation
@@ -1454,18 +1457,22 @@ function drawTitlePiste(cx, cy, w) {
 var _titleTourneyBtn = { x: 0, y: 0, w: 0, h: 0 };
 var _titlePracticeBtn = { x: 0, y: 0, w: 0, h: 0 };
 var _titleRosterBtn = { x: 0, y: 0, w: 0, h: 0 };
-var _titleDiffBtn = { x: 0, y: 0, w: 0, h: 0 };
 var _titleSettingsBtn = { x: 0, y: 0, w: 0, h: 0 };
 
 function drawTitle() {
     var p = isPortrait();
-    // Scale title type to viewport so very wide canvases don't waste space
-    var titleFont = p ? Math.min(40, Math.floor(VIEW_W / 14)) : Math.min(36, Math.floor(VIEW_W / 16));
-    var bylineFont = p ? 11 : 8;
-    var barH = p ? Math.round(titleFont * 3.0) : Math.round(titleFont * 2.6);
-    var btnH = p ? 52 : 36;
-    var btnW = p ? Math.min(420, VIEW_W - 60) : 240;
+    // Fixed-size type so the bar doesn't grow with viewport
+    var titleFont = p ? 28 : 24;
+    var bylineFont = p ? 9 : 7;
+    var barH = p ? 76 : 58;
+    var btnH = p ? 50 : 34;
+    var btnW = p ? Math.min(380, VIEW_W - 60) : 220;
     var btnGap = p ? 12 : 10;
+    // Footer button row (Settings, like Pixel Rugby's bottom-right placement)
+    var footerBtnW = p ? 110 : 90;
+    var footerBtnH = p ? 30 : 22;
+    var footerMargin = p ? 16 : 14;
+    var footerY = VIEW_H - footerBtnH - footerMargin;
 
     // Background fill
     ctx.fillStyle = COLOR_BG;
@@ -1477,7 +1484,7 @@ function drawTitle() {
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
     ctx.fillRect(0, barH - 2, VIEW_W, 2);
 
-    var titleY = barH / 2 - (p ? 10 : 6);
+    var titleY = Math.round(barH * 0.42);
     ctx.font = 'bold ' + titleFont + 'px ' + FONT;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -1487,25 +1494,29 @@ function drawTitle() {
     ctx.fillText('PIXEL FENCING', VIEW_W / 2, titleY);
     ctx.font = bylineFont + 'px ' + FONT;
     ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    ctx.fillText('BY JORGE GONZALEZ MEDINA', VIEW_W / 2, titleY + titleFont / 2 + (p ? 24 : 19));
+    ctx.fillText('BY JORGE GONZALEZ MEDINA', VIEW_W / 2, barH - (p ? 16 : 12));
 
-    // Settings — small button top-LEFT of the banner (out of the title's way)
-    var setW = p ? 90 : 80;
-    var setH = p ? 28 : 22;
-    drawButton(SAFE_X + 10, 10, setW, setH, 'Settings', false);
-    _titleSettingsBtn = { x: SAFE_X + 10, y: 10, w: setW, h: setH };
+    // Three stacked main buttons (Tournament / Practice / Roster). Difficulty
+    // moved into the Settings modal; Settings button is now in the footer.
+    var totalBtnH = btnH * 3 + btnGap * 2;
+    var btnTopY = footerY - totalBtnH - (p ? 20 : 14);
 
-    // Three stacked main buttons + difficulty button at bottom
-    var diffBtnH = p ? 32 : 24;
-    var totalBtnH = btnH * 3 + btnGap * 2 + diffBtnH + btnGap;
-    var btnTopY = VIEW_H - totalBtnH - (p ? 32 : 24);
-
-    // Center the fencer + piste vertically in the space between banner and buttons
-    var midSpaceTop = barH;
-    var midSpaceBottom = btnTopY;
+    // Available middle space between banner and buttons. Sprite size is sized
+    // to fit ~70% of that height so it never collides with the banner.
+    var midSpaceTop = barH + 8;
+    var midSpaceBottom = btnTopY - 8;
+    var midSpaceH = midSpaceBottom - midSpaceTop;
     var midSpaceCY = Math.round((midSpaceTop + midSpaceBottom) / 2);
-    var pisteCY = midSpaceCY + (p ? 30 : 20);
-    drawTitlePiste(VIEW_W / 2, pisteCY, p ? Math.min(320, VIEW_W - 80) : 280);
+
+    // drawFencer renders 19 logical px tall * 1.8 internal scale = 34.2 * size pixels.
+    // Cap so the sprite uses at most 70% of midSpaceH.
+    var maxSpriteH = midSpaceH * 0.70;
+    var spriteSize = Math.max(1.5, Math.min(p ? 4.4 : 3.4, maxSpriteH / (19 * 1.8)));
+    var spritePxH = 19 * 1.8 * spriteSize;
+    // Place feet on the piste; piste sits a little below midSpaceCY so the
+    // sprite's BODY (not feet) ends up roughly at midSpaceCY.
+    var pisteCY = Math.round(midSpaceCY + spritePxH * 0.35);
+    drawTitlePiste(VIEW_W / 2, pisteCY, p ? Math.min(320, VIEW_W - 80) : 260);
 
     // Title fencer — favorite if set, else Italy. Feet stand ON the piste centerline.
     var fav = loadFavorite();
@@ -1518,8 +1529,6 @@ function drawTitle() {
     }
     if (!titleFencer && FENCERS.length) titleFencer = FENCERS[0];
     if (titleFencer) {
-        var spriteSize = p ? 4.6 : 3.6;
-        // drawFencer's `py` is the feet baseline → place feet on the piste's centerline
         drawFencer(VIEW_W / 2, pisteCY, titleFencer, spriteSize, 'right', 'en-garde', 0);
     }
 
@@ -1533,14 +1542,13 @@ function drawTitle() {
     _titlePracticeBtn = { x: VIEW_W / 2 - btnW / 2, y: btnTopY + btnH + btnGap, w: btnW, h: btnH };
     _titleRosterBtn = { x: VIEW_W / 2 - btnW / 2, y: btnTopY + (btnH + btnGap) * 2, w: btnW, h: btnH };
 
-    var diffY = btnTopY + (btnH + btnGap) * 3;
-    var diffW = p ? 220 : 180;
-    drawButton(VIEW_W / 2 - diffW / 2, diffY, diffW, diffBtnH,
-        'Difficulty: ' + _diffNames[difficulty], false);
-    _titleDiffBtn = { x: VIEW_W / 2 - diffW / 2, y: diffY, w: diffW, h: diffBtnH };
+    // Settings — bottom-right footer (matches Pixel Rugby's placement)
+    var setX = VIEW_W - footerBtnW - footerMargin - SAFE_X;
+    drawButton(setX, footerY, footerBtnW, footerBtnH, 'Settings', false);
+    _titleSettingsBtn = { x: setX, y: footerY, w: footerBtnW, h: footerBtnH };
 
     // Compute focus rect from titleFocus
-    var titleRects = [_titleTourneyBtn, _titlePracticeBtn, _titleRosterBtn, _titleDiffBtn, _titleSettingsBtn];
+    var titleRects = [_titleTourneyBtn, _titlePracticeBtn, _titleRosterBtn, _titleSettingsBtn];
     _focusedRect = titleRects[titleFocus] || null;
 }
 
@@ -1807,9 +1815,18 @@ var _btnLunge   = { x:0, y:0, w:0, h:0 };
 var _btnParry   = { x:0, y:0, w:0, h:0 };
 var _btnQuit    = { x:0, y:0, w:0, h:0 };
 
+// Height of the touch button row at the bottom of a bout. Used by drawBout
+// to know where the playable area ends.
+function boutTouchControlsH() {
+    if (!_isTouchDevice) return 0;
+    var p = isPortrait();
+    var pad = p ? 10 : 8;
+    var btnH = p ? 56 : 44;
+    return btnH + pad * 2;
+}
+
 function drawBoutTouchControls() {
-    // 4-button layout at the bottom of the bout screen, plus a small Quit
-    // button in the top-right of the score ribbon area.
+    // 4-button row at the bottom of the bout screen.
     var p = isPortrait();
     var pad = p ? 10 : 8;
     var btnH = p ? 56 : 44;
@@ -1829,11 +1846,6 @@ function drawBoutTouchControls() {
     _btnParry = { x: rx, y: areaY, w: btnW, h: btnH };
     drawButton(rx + btnW + pad, areaY, btnW, btnH, 'LUNGE', true);
     _btnLunge = { x: rx + btnW + pad, y: areaY, w: btnW, h: btnH };
-    // Quit (small, top-right)
-    var qW = p ? 50 : 42;
-    var qH = p ? 22 : 18;
-    drawButton(VIEW_W - qW - 8 - SAFE_X, BAR_H + 6, qW, qH, 'Quit', false);
-    _btnQuit = { x: VIEW_W - qW - 8 - SAFE_X, y: BAR_H + 6, w: qW, h: qH };
 }
 
 function drawBoutControlsHint(yBottom) {
@@ -1891,24 +1903,39 @@ function drawBout() {
     // Background
     ctx.fillStyle = COLOR_BG;
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-    // Crowd
-    var crowdTop = BAR_H + 36, crowdH = 60;
-    drawCrowd(crowdTop, crowdH);
 
-    drawBar('PIXEL FENCING', '', '');
+    drawBar('', '', '');
     drawScoreRibbon();
 
-    // Piste sits in lower-middle of canvas
-    var pisteY = p ? Math.round(VIEW_H * 0.62) : Math.round(VIEW_H * 0.65);
+    // Quit button — sits inside the top bar on the right (no longer collides
+    // with the score ribbon below the bar)
+    var qW = p ? 60 : 54;
+    var qH = BAR_H - 6;
+    drawButton(VIEW_W - qW - 6 - SAFE_X, 3, qW, qH, 'Quit', false);
+    _btnQuit = { x: VIEW_W - qW - 6 - SAFE_X, y: 3, w: qW, h: qH };
+
+    // Crowd — fixed height, sits just below the score ribbon
+    var ribbonH = p ? 38 : 32;
+    var crowdTop = BAR_H + ribbonH;
+    var crowdH = p ? 44 : 50;
+    drawCrowd(crowdTop, crowdH);
+
+    // Compute the playable area: from below the crowd to above the touch buttons
+    var playTop = crowdTop + crowdH;
+    var playBottom = VIEW_H - boutTouchControlsH() - (_isTouchDevice ? 6 : 18);
+    var pisteY = Math.round((playTop + playBottom) / 2);
     drawPiste(pisteY);
 
-    var spriteSize = p ? 4 : 3.6;
+    // Sprite size scales with available height; cap so it never overflows
+    var availH = playBottom - playTop;
+    var spriteSize = Math.max(1.8, Math.min(p ? 4.2 : 3.8, availH * 0.55 / (19 * 1.8)));
     drawFencerOnPiste(bp1, pisteY, spriteSize);
     drawFencerOnPiste(bp2, pisteY, spriteSize);
 
     drawPriorityIndicator(pisteY);
     drawBoutMessage(pisteY);
-    drawBoutControlsHint(VIEW_H - 14);
+    if (!_isTouchDevice) drawBoutControlsHint(VIEW_H - 14);
+    else drawBoutTouchControls();
 
     // Result overlay
     if (state === S_BOUT_RESULT) {
@@ -2465,11 +2492,12 @@ function onPointerDown(e) {
     // Modal overlays take input first
     if (settingsVisible) {
         if (settingsConfirmDelete === 0) {
-            if (pointInRect(pt, _settingsRects.sound))    { toggleSoundSetting(); return; }
-            if (pointInRect(pt, _settingsRects.music))    { toggleMusicSetting(); return; }
-            if (pointInRect(pt, _settingsRects.tutorial)) { settingsVisible = false; openTutorial(); return; }
-            if (pointInRect(pt, _settingsRects.del))      { settingsConfirmDelete = 1; sfxBlade(); dirty = true; return; }
-            if (pointInRect(pt, _settingsRects.close))    { closeSettings(); return; }
+            if (pointInRect(pt, _settingsRects.sound))      { toggleSoundSetting(); return; }
+            if (pointInRect(pt, _settingsRects.music))      { toggleMusicSetting(); return; }
+            if (pointInRect(pt, _settingsRects.difficulty)) { cycleDifficulty(); return; }
+            if (pointInRect(pt, _settingsRects.tutorial))   { settingsVisible = false; openTutorial(); return; }
+            if (pointInRect(pt, _settingsRects.del))        { settingsConfirmDelete = 1; sfxBlade(); dirty = true; return; }
+            if (pointInRect(pt, _settingsRects.close))      { closeSettings(); return; }
         } else {
             if (pointInRect(pt, _settingsRects.confirmDel)) {
                 if (settingsConfirmDelete === 1) { settingsConfirmDelete = 2; sfxBlade(); dirty = true; }
@@ -2490,7 +2518,6 @@ function onPointerDown(e) {
         if (pointInRect(pt, _titleTourneyBtn))  { enterTournament(); return; }
         if (pointInRect(pt, _titlePracticeBtn)) { enterPracticeBout(); return; }
         if (pointInRect(pt, _titleRosterBtn))   { enterRoster(); return; }
-        if (pointInRect(pt, _titleDiffBtn))     { cycleDifficulty(); return; }
         ensureAudioStarted();
         return;
     }
@@ -2618,14 +2645,15 @@ function onKeyDown(e) {
             if (settingsConfirmDelete === 0) {
                 if (settingsFocus === 0) toggleSoundSetting();
                 else if (settingsFocus === 1) toggleMusicSetting();
-                else if (settingsFocus === 2) { settingsVisible = false; openTutorial(); }
-                else if (settingsFocus === 3) { settingsConfirmDelete = 1; settingsFocus = 1; sfxBlade(); dirty = true; }
-                else if (settingsFocus === 4) closeSettings();
+                else if (settingsFocus === 2) cycleDifficulty();
+                else if (settingsFocus === 3) { settingsVisible = false; openTutorial(); }
+                else if (settingsFocus === 4) { settingsConfirmDelete = 1; settingsFocus = 1; sfxBlade(); dirty = true; }
+                else if (settingsFocus === 5) closeSettings();
             } else {
                 if (settingsFocus === 0) {
                     if (settingsConfirmDelete === 1) { settingsConfirmDelete = 2; sfxBlade(); dirty = true; }
                     else { deleteAllData(); }
-                } else { settingsConfirmDelete = 0; settingsFocus = 3; sfxBlade(); dirty = true; }
+                } else { settingsConfirmDelete = 0; settingsFocus = 4; sfxBlade(); dirty = true; }
             }
             return;
         }
@@ -2649,14 +2677,12 @@ function onKeyDown(e) {
             if      (titleFocus === 0) enterTournament();
             else if (titleFocus === 1) enterPracticeBout();
             else if (titleFocus === 2) enterRoster();
-            else if (titleFocus === 3) cycleDifficulty();
-            else if (titleFocus === 4) openSettings();
+            else if (titleFocus === 3) openSettings();
             return;
         }
         // Letter shortcuts (still work)
         if (e.key === 'p' || e.key === 'P') { enterPracticeBout(); return; }
         if (e.key === 'r' || e.key === 'R') { enterRoster(); return; }
-        if (e.key === 'd' || e.key === 'D') { cycleDifficulty(); return; }
         if (e.key === 's' || e.key === 'S') { openSettings(); return; }
         return;
     }

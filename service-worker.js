@@ -1,4 +1,4 @@
-var CACHE_NAME = 'pixel-fencing-v6';
+var CACHE_NAME = 'pixel-fencing-v8';
 var ASSETS = [
   '/',
   '/index.html',
