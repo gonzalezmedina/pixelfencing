@@ -350,18 +350,9 @@ var settingsFocus = 0;     // 0=Sound 1=Music 2=Difficulty 3=Tutorial 4=Delete 5
 var SETTINGS_FOCUS_COUNT = 6;
 var bracketFocus = 1;      // 0=Quit 1=Continue (Continue is the natural default)
 
-function drawFocusBorder() {
-    if (!_focusedRect) return;
-    var pulse = (Math.floor(performance.now() / 250) % 2) === 0;
-    if (!pulse) return;
-    var r = _focusedRect;
-    ctx.strokeStyle = COLOR_GOLD;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(r.x - 2.5, r.y - 2.5, r.w + 5, r.h + 5);
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(r.x - 4.5, r.y - 4.5, r.w + 9, r.h + 9);
-}
+// Focus is rendered as the button's own gold border (via the `primary`
+// parameter to drawButton) — no separate outline. Match Pixel Rugby.
+function drawFocusBorder() { /* no-op — focus is in-button */ }
 
 // ── States ──
 var S_TITLE = 0;
@@ -685,26 +676,23 @@ function drawSettings() {
     var gap = p ? 10 : 8;
 
     if (settingsConfirmDelete === 0) {
-        drawButton(bx, by, bw, bh, 'Sound: ' + (soundOn ? 'ON' : 'OFF'), soundOn);
+        drawButton(bx, by, bw, bh, 'Sound: ' + (soundOn ? 'ON' : 'OFF'), settingsFocus === 0);
         _settingsRects.sound = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap;
-        drawButton(bx, by, bw, bh, 'Music: ' + (musicOn ? 'ON' : 'OFF'), musicOn);
+        drawButton(bx, by, bw, bh, 'Music: ' + (musicOn ? 'ON' : 'OFF'), settingsFocus === 1);
         _settingsRects.music = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap;
-        drawButton(bx, by, bw, bh, 'Difficulty: ' + _diffNames[difficulty], false);
+        drawButton(bx, by, bw, bh, 'Difficulty: ' + _diffNames[difficulty], settingsFocus === 2);
         _settingsRects.difficulty = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap;
-        drawButton(bx, by, bw, bh, 'How to Play', false);
+        drawButton(bx, by, bw, bh, 'How to Play', settingsFocus === 3);
         _settingsRects.tutorial = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap;
-        drawButton(bx, by, bw, bh, 'Delete All Data', false);
+        drawButton(bx, by, bw, bh, 'Delete All Data', settingsFocus === 4);
         _settingsRects.del = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap + (p ? 6 : 4);
-        drawButton(bx, by, bw, bh, 'Close', true);
+        drawButton(bx, by, bw, bh, 'Close', settingsFocus === 5);
         _settingsRects.close = { x: bx, y: by, w: bw, h: bh };
-        // Focus
-        var fkeys = ['sound', 'music', 'difficulty', 'tutorial', 'del', 'close'];
-        _focusedRect = _settingsRects[fkeys[settingsFocus]] || null;
     } else {
         // Confirmation
         ctx.font = 'bold ' + (p ? 13 : 10) + 'px ' + FONT;
@@ -718,12 +706,10 @@ function drawSettings() {
 
         var cby = dlgY + (p ? 160 : 130);
         var cbw = (bw - gap) / 2;
-        drawButton(bx, cby, cbw, bh, 'Delete', false);
+        drawButton(bx, cby, cbw, bh, 'Delete', settingsFocus === 0);
         _settingsRects.confirmDel = { x: bx, y: cby, w: cbw, h: bh };
-        drawButton(bx + cbw + gap, cby, cbw, bh, 'Cancel', true);
+        drawButton(bx + cbw + gap, cby, cbw, bh, 'Cancel', settingsFocus === 1);
         _settingsRects.cancelDel = { x: bx + cbw + gap, y: cby, w: cbw, h: bh };
-        // Focus: 0 = Delete, 1 = Cancel (default to Cancel for safety)
-        _focusedRect = (settingsFocus === 0) ? _settingsRects.confirmDel : _settingsRects.cancelDel;
     }
 }
 
@@ -804,7 +790,6 @@ function drawTutorial() {
     var btnY = dlgY + dlgH - btnH - 16;
     drawButton(dlgX + dlgW / 2 - btnW / 2, btnY, btnW, btnH, 'Got It', true);
     _tutorialBtn = { x: dlgX + dlgW / 2 - btnW / 2, y: btnY, w: btnW, h: btnH };
-    _focusedRect = _tutorialBtn;
 }
 
 // ── Confetti (Phase 6 — champion celebration) ──
@@ -1532,24 +1517,19 @@ function drawTitle() {
         drawFencer(VIEW_W / 2, pisteCY, titleFencer, spriteSize, 'right', 'en-garde', 0);
     }
 
-    var pulse = (Math.floor(performance.now() / 500) % 2) === 0;
     var savedTourney = !!loadTournament();
     var tourneyLabel = savedTourney ? 'Continue Tournament' : 'Tournament';
-    drawButton(VIEW_W / 2 - btnW / 2, btnTopY, btnW, btnH, tourneyLabel, pulse);
-    drawButton(VIEW_W / 2 - btnW / 2, btnTopY + btnH + btnGap, btnW, btnH, 'Practice Bout', false);
-    drawButton(VIEW_W / 2 - btnW / 2, btnTopY + (btnH + btnGap) * 2, btnW, btnH, 'Roster', false);
+    drawButton(VIEW_W / 2 - btnW / 2, btnTopY, btnW, btnH, tourneyLabel, titleFocus === 0);
+    drawButton(VIEW_W / 2 - btnW / 2, btnTopY + btnH + btnGap, btnW, btnH, 'Practice Bout', titleFocus === 1);
+    drawButton(VIEW_W / 2 - btnW / 2, btnTopY + (btnH + btnGap) * 2, btnW, btnH, 'Roster', titleFocus === 2);
     _titleTourneyBtn = { x: VIEW_W / 2 - btnW / 2, y: btnTopY, w: btnW, h: btnH };
     _titlePracticeBtn = { x: VIEW_W / 2 - btnW / 2, y: btnTopY + btnH + btnGap, w: btnW, h: btnH };
     _titleRosterBtn = { x: VIEW_W / 2 - btnW / 2, y: btnTopY + (btnH + btnGap) * 2, w: btnW, h: btnH };
 
     // Settings — bottom-right footer (matches Pixel Rugby's placement)
     var setX = VIEW_W - footerBtnW - footerMargin - SAFE_X;
-    drawButton(setX, footerY, footerBtnW, footerBtnH, 'Settings', false);
+    drawButton(setX, footerY, footerBtnW, footerBtnH, 'Settings', titleFocus === 3);
     _titleSettingsBtn = { x: setX, y: footerY, w: footerBtnW, h: footerBtnH };
-
-    // Compute focus rect from titleFocus
-    var titleRects = [_titleTourneyBtn, _titlePracticeBtn, _titleRosterBtn, _titleSettingsBtn];
-    _focusedRect = titleRects[titleFocus] || null;
 }
 
 // ── Roster gallery ──
@@ -1584,12 +1564,13 @@ function drawRoster() {
         var cyTop = topPad + row * cellH;
         var f = FENCERS[i];
 
-        // Cell card
+        // Cell card — gold border when focused
         var cardX = gridX + col * cellW + 4;
         var cardY = cyTop + 2;
         var cardW = cellW - 8;
         var cardH = cellH - 6;
-        drawPixelRoundRect(cardX, cardY, cardW, cardH, 3, COLOR_BG_DARK);
+        var rosterFocused = (rosterFocusIdx === i);
+        drawPixelRoundRect(cardX, cardY, cardW, cardH, 3, rosterFocused ? COLOR_GOLD : COLOR_BG_DARK);
         drawPixelRoundRect(cardX + 1, cardY + 1, cardW - 2, cardH - 2, 3, COLOR_BG_LIGHT);
 
         // Flag chip in top-left
@@ -1625,13 +1606,8 @@ function drawRoster() {
     var backW = p ? 160 : 110;
     var backX = VIEW_W / 2 - backW / 2;
     var backY = VIEW_H - bottomBtnH - 8;
-    drawButton(backX, backY, backW, bottomBtnH, 'Back', true);
+    drawButton(backX, backY, backW, bottomBtnH, 'Back', rosterFocusIdx === 16);
     _rosterBackBtn = { x: backX, y: backY, w: backW, h: bottomBtnH };
-
-    // Focus rect
-    if (rosterFocusIdx >= 0 && rosterFocusIdx < _rosterCells.length) _focusedRect = _rosterCells[rosterFocusIdx];
-    else if (rosterFocusIdx === 16) _focusedRect = _rosterBackBtn;
-    else _focusedRect = null;
 }
 
 // ── Bout rendering ──
@@ -2023,18 +1999,12 @@ function drawFencerSelect() {
     // Footer: Back + Confirm
     var btnY = VIEW_H - bottomBtnH - 8;
     var btnW = p ? 140 : 110;
-    drawButton(SAFE_X + 12, btnY, btnW, bottomBtnH, 'Back', false);
+    drawButton(SAFE_X + 12, btnY, btnW, bottomBtnH, 'Back', fsFocusIdx === 16);
     _fsBackBtn = { x: SAFE_X + 12, y: btnY, w: btnW, h: bottomBtnH };
     var confirmEnabled = !!fsHighlightCode;
     drawButton(VIEW_W - SAFE_X - btnW - 12, btnY, btnW, bottomBtnH,
-        confirmEnabled ? 'Start' : 'Pick One', confirmEnabled);
+        confirmEnabled ? 'Start' : 'Pick One', fsFocusIdx === 17 || confirmEnabled);
     _fsConfirmBtn = { x: VIEW_W - SAFE_X - btnW - 12, y: btnY, w: btnW, h: bottomBtnH };
-
-    // Focus rect
-    if (fsFocusIdx >= 0 && fsFocusIdx < _fsCells.length) _focusedRect = _fsCells[fsFocusIdx];
-    else if (fsFocusIdx === 16) _focusedRect = _fsBackBtn;
-    else if (fsFocusIdx === 17) _focusedRect = _fsConfirmBtn;
-    else _focusedRect = null;
 }
 
 // ── Bracket view ──
@@ -2121,13 +2091,11 @@ function drawBracket() {
             primary = true;
         }
     }
-    drawButton(VIEW_W / 2 - btnW / 2, btnY, btnW, bottomBtnH, label, primary);
+    drawButton(VIEW_W / 2 - btnW / 2, btnY, btnW, bottomBtnH, label, bracketFocus === 1);
     _bracketBtn = { x: VIEW_W / 2 - btnW / 2, y: btnY, w: btnW, h: bottomBtnH };
     // Back-to-title (small, top-left)
-    drawButton(SAFE_X + 8, btnY, p ? 80 : 70, bottomBtnH, 'Quit', false);
+    drawButton(SAFE_X + 8, btnY, p ? 80 : 70, bottomBtnH, 'Quit', bracketFocus === 0);
     _bracketBackBtn = { x: SAFE_X + 8, y: btnY, w: p ? 80 : 70, h: bottomBtnH };
-
-    _focusedRect = (bracketFocus === 0) ? _bracketBackBtn : _bracketBtn;
 }
 
 // ── Match intro ──
@@ -2200,10 +2168,8 @@ function drawMatchIntro() {
     var btnH = p ? 50 : 36;
     var btnW = p ? 240 : 200;
     var btnY = VIEW_H - btnH - (p ? 24 : 16);
-    var pulse = (Math.floor(performance.now() / 500) % 2) === 0;
-    drawButton(VIEW_W / 2 - btnW / 2, btnY, btnW, btnH, 'Fence!', pulse);
+    drawButton(VIEW_W / 2 - btnW / 2, btnY, btnW, btnH, 'Fence!', true);
     _matchIntroBtn = { x: VIEW_W / 2 - btnW / 2, y: btnY, w: btnW, h: btnH };
-    _focusedRect = _matchIntroBtn;
 }
 
 // ── Champion / Game Over ──
@@ -2241,7 +2207,6 @@ function drawChampion() {
     var btnY = VIEW_H - btnH - (p ? 24 : 16);
     drawButton(VIEW_W / 2 - btnW / 2, btnY, btnW, btnH, 'Title', true);
     _endScreenBtn = { x: VIEW_W / 2 - btnW / 2, y: btnY, w: btnW, h: btnH };
-    _focusedRect = _endScreenBtn;
 }
 
 function drawGameOver() {
@@ -2276,7 +2241,6 @@ function drawGameOver() {
     var btnY = VIEW_H - btnH - (p ? 24 : 16);
     drawButton(VIEW_W / 2 - btnW / 2, btnY, btnW, btnH, 'Title', true);
     _endScreenBtn = { x: VIEW_W / 2 - btnW / 2, y: btnY, w: btnW, h: btnH };
-    _focusedRect = _endScreenBtn;
 }
 
 function draw() {

@@ -144,13 +144,16 @@ function renderIcon(width, height, opts) {
     opts = opts || {};
     const fillRatio = opts.fillRatio || 0.78;
     const buf = Buffer.alloc(width * height * 4);
-    // Background
-    for (let i = 0; i < width * height; i++) {
-        buf[i * 4]     = C.BG[0];
-        buf[i * 4 + 1] = C.BG[1];
-        buf[i * 4 + 2] = C.BG[2];
-        buf[i * 4 + 3] = 255;
+    // Background — solid blue unless `transparent` is set
+    if (!opts.transparent) {
+        for (let i = 0; i < width * height; i++) {
+            buf[i * 4]     = C.BG[0];
+            buf[i * 4 + 1] = C.BG[1];
+            buf[i * 4 + 2] = C.BG[2];
+            buf[i * 4 + 3] = 255;
+        }
     }
+    // (otherwise the buffer stays all-zero which is fully transparent)
     // Sprite scale: largest integer that keeps sprite within fillRatio of icon
     let scale = Math.max(1, Math.floor(Math.min(
         width  * fillRatio / SPRITE_W,
@@ -200,12 +203,13 @@ if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
     console.log(`apple-touch-icon.png  ${W}×${H}  scale ${scale}x  ${png.length} bytes`);
 }
 
-// 32×32 favicon
+// Favicon — sized to the sprite's exact bounding box (no padding) on a
+// transparent background, so it sits cleanly on any browser chrome.
 {
-    const W = 32, H = 32;
-    const { rgba, scale } = renderIcon(W, H, { forceScale: 1 });
+    const W = SPRITE_W, H = SPRITE_H; // 24 × 16
+    const { rgba, scale } = renderIcon(W, H, { forceScale: 1, transparent: true });
     const png = encodePNG(W, H, rgba);
     const out = path.join(outDir, 'favicon.png');
     fs.writeFileSync(out, png);
-    console.log(`favicon.png           ${W}×${H}  scale ${scale}x  ${png.length} bytes`);
+    console.log(`favicon.png           ${W}×${H}  scale ${scale}x  ${png.length} bytes  (transparent, tight bounds)`);
 }
