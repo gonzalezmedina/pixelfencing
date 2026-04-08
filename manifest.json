@@ -1,0 +1,12 @@
+{
+  "name": "Pixel Fencing",
+  "short_name": "Pixel Fencing",
+  "description": "A retro pixel-art fencing game",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "scope": "/",
+  "background_color": "#1e4e8e",
+  "theme_color": "#0e2a4a",
+  "icons": []
+}

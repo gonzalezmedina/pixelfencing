@@ -1,0 +1,38 @@
+{
+  "fencers": [
+    { "name": "Italy",         "code": "ITA", "colors": ["#008c45", "#cd212a"], "skin": ["#f5d0b0", "#e8c89e", "#c8a07a"], "strength": 5, "tier": 1, "region": "Europe" },
+    { "name": "France",        "code": "FRA", "colors": ["#0055a4", "#ef4135"], "skin": ["#f5d0b0", "#e8c89e", "#c8a07a", "#a0724e"], "strength": 5, "tier": 1, "region": "Europe" },
+    { "name": "United States", "code": "USA", "colors": ["#3c3b6e", "#b22234"], "skin": ["#f5d0b0", "#e8c89e", "#c8a07a", "#a0724e", "#6b4226"], "strength": 5, "tier": 1, "region": "Americas" },
+    { "name": "Japan",         "code": "JPN", "colors": ["#bc002d", "#ffffff"], "skin": ["#e8c89e", "#c8a07a"], "strength": 5, "tier": 1, "region": "Asia" },
+    { "name": "Russia",        "code": "RUS", "colors": ["#0039a6", "#d52b1e"], "skin": ["#f5d0b0", "#e8c89e"], "strength": 4, "tier": 2, "region": "Europe" },
+    { "name": "China",         "code": "CHN", "colors": ["#de2910", "#ffde00"], "skin": ["#e8c89e", "#c8a07a"], "strength": 4, "tier": 2, "region": "Asia" },
+    { "name": "South Korea",   "code": "KOR", "colors": ["#003478", "#cd2e3a"], "skin": ["#e8c89e", "#c8a07a"], "strength": 4, "tier": 2, "region": "Asia" },
+    { "name": "Germany",       "code": "GER", "colors": ["#000000", "#dd0000"], "skin": ["#f5d0b0", "#e8c89e"], "strength": 4, "tier": 2, "region": "Europe" },
+    { "name": "Hungary",       "code": "HUN", "colors": ["#cd2a3e", "#436f4d"], "skin": ["#f5d0b0", "#e8c89e"], "strength": 4, "tier": 2, "region": "Europe" },
+    { "name": "Great Britain", "code": "GBR", "colors": ["#012169", "#c8102e"], "skin": ["#f5d0b0", "#e8c89e", "#c8a07a", "#a0724e"], "strength": 3, "tier": 3, "region": "Europe" },
+    { "name": "Poland",        "code": "POL", "colors": ["#dc143c", "#ffffff"], "skin": ["#f5d0b0", "#e8c89e"], "strength": 3, "tier": 3, "region": "Europe" },
+    { "name": "Canada",        "code": "CAN", "colors": ["#d52b1e", "#ffffff"], "skin": ["#f5d0b0", "#e8c89e", "#c8a07a", "#a0724e"], "strength": 3, "tier": 3, "region": "Americas" },
+    { "name": "Spain",         "code": "ESP", "colors": ["#aa151b", "#f1bf00"], "skin": ["#e8c89e", "#c8a07a", "#a0724e"], "strength": 3, "tier": 3, "region": "Europe" },
+    { "name": "Brazil",        "code": "BRA", "colors": ["#009c3b", "#ffdf00"], "skin": ["#c8a07a", "#a0724e", "#6b4226"], "strength": 2, "tier": 4, "region": "Americas" },
+    { "name": "Argentina",     "code": "ARG", "colors": ["#75aadb", "#ffffff"], "skin": ["#f5d0b0", "#e8c89e", "#c8a07a"], "strength": 2, "tier": 4, "region": "Americas" },
+    { "name": "Egypt",         "code": "EGY", "colors": ["#c8102e", "#000000"], "skin": ["#c8a07a", "#a0724e"], "strength": 2, "tier": 4, "region": "Africa" }
+  ],
+  "flags": {
+    "ITA": [{"c":"#008c45"},{"c":"#ffffff","x":0.333,"w":0.334},{"c":"#cd212a","x":0.667,"w":0.333}],
+    "FRA": [{"c":"#0055a4"},{"c":"#ffffff","x":0.333,"w":0.334},{"c":"#ef4135","x":0.667,"w":0.333}],
+    "USA": [{"c":"#b22234"},{"c":"#ffffff","y":0.154,"h":0.154},{"c":"#ffffff","y":0.462,"h":0.154},{"c":"#ffffff","y":0.769,"h":0.154},{"c":"#3c3b6e","w":0.4,"h":0.538}],
+    "JPN": [{"c":"#ffffff"},{"c":"#bc002d","x":0.34,"y":0.27,"w":0.32,"h":0.46}],
+    "RUS": [{"c":"#ffffff"},{"c":"#0039a6","y":0.333,"h":0.334},{"c":"#d52b1e","y":0.667,"h":0.333}],
+    "CHN": [{"c":"#de2910"},{"c":"#ffde00","x":0.10,"y":0.15,"w":0.10,"h":0.15},{"c":"#ffde00","x":0.25,"y":0.05,"w":0.06,"h":0.10},{"c":"#ffde00","x":0.30,"y":0.18,"w":0.06,"h":0.10},{"c":"#ffde00","x":0.30,"y":0.32,"w":0.06,"h":0.10},{"c":"#ffde00","x":0.25,"y":0.45,"w":0.06,"h":0.10}],
+    "KOR": [{"c":"#ffffff"},{"c":"#cd2e3a","x":0.30,"y":0.30,"w":0.40,"h":0.20},{"c":"#003478","x":0.30,"y":0.50,"w":0.40,"h":0.20}],
+    "GER": [{"c":"#000000","h":0.334},{"c":"#dd0000","y":0.333,"h":0.334},{"c":"#ffce00","y":0.667,"h":0.333}],
+    "HUN": [{"c":"#cd2a3e","h":0.334},{"c":"#ffffff","y":0.333,"h":0.334},{"c":"#436f4d","y":0.667,"h":0.333}],
+    "GBR": [{"c":"#012169"},{"c":"#ffffff","y":0.4,"h":0.2},{"c":"#ffffff","x":0.4,"w":0.2},{"c":"#c8102e","y":0.444,"h":0.111},{"c":"#c8102e","x":0.444,"w":0.111}],
+    "POL": [{"c":"#ffffff","h":0.5},{"c":"#dc143c","y":0.5,"h":0.5}],
+    "CAN": [{"c":"#d52b1e"},{"c":"#ffffff","x":0.25,"w":0.5},{"c":"#d52b1e","x":0.42,"y":0.30,"w":0.16,"h":0.40}],
+    "ESP": [{"c":"#aa151b","h":0.25},{"c":"#f1bf00","y":0.25,"h":0.5},{"c":"#aa151b","y":0.75,"h":0.25}],
+    "BRA": [{"c":"#009c3b"},{"c":"#ffdf00","x":0.10,"y":0.20,"w":0.80,"h":0.60},{"c":"#002776","x":0.30,"y":0.30,"w":0.40,"h":0.40}],
+    "ARG": [{"c":"#75aadb","h":0.334},{"c":"#ffffff","y":0.333,"h":0.334},{"c":"#75aadb","y":0.667,"h":0.333},{"c":"#fcbf49","x":0.45,"y":0.42,"w":0.10,"h":0.16}],
+    "EGY": [{"c":"#c8102e","h":0.334},{"c":"#ffffff","y":0.333,"h":0.334},{"c":"#000000","y":0.667,"h":0.333}]
+  }
+}

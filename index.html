@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0e2a4a">
+<meta name="description" content="A retro pixel-art fencing game">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Pixel Fencing">
+<title>Pixel Fencing</title>
+<link rel="manifest" href="/manifest.json">
+<style>
+@font-face {
+  font-family: 'Press Start 2P';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url(/assets/PressStart2P.ttf) format('truetype');
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+body { display: block; }
+canvas { display: block; outline: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; }
+@media (display-mode: standalone) { html, body { height: 100dvh; } }
+</style>
+</head>
+<body>
+<canvas id="cFence" tabindex="0"></canvas>
+<script src="/game.js"></script>
+<script>
+if (window._fenceInit) window._fenceInit();
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/service-worker.js');
+}
+</script>
+</body>
+</html>
