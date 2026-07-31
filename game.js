@@ -1017,12 +1017,13 @@ function isPortrait() { return VIEW_H > VIEW_W; }
 // draw() pass calls drawFocusBorder() to overlay a pulsing gold border.
 //
 var _focusedRect = null;
-var titleFocus = 0;        // 0=Tournament 1=Practice 2=Roster 3=Settings
-var TITLE_FOCUS_COUNT = 4;
+var titleFocus = 0;        // 0=Tourney 1=Quick 2=Choose 3=2P 4=Roster 5=Records 6=Settings
+var TITLE_FOCUS_COUNT = 7;
 var fsFocusIdx = 0;        // 0..15 = grid cell, 16=Back, 17=Start
 var rosterFocusIdx = 0;    // 0..15 = grid cell, 16=Back
-var settingsFocus = 0;     // 0=Sound 1=Music 2=Difficulty 3=Tutorial 4=Delete 5=Close
-var SETTINGS_FOCUS_COUNT = 6;
+var settingsFocus = 0;     // 0=Sound 1=Music 2=Effects 3=Weapon 4=Difficulty
+                           // 5=Tutorial 6=Delete 7=Close
+var SETTINGS_FOCUS_COUNT = 8;
 var bracketFocus = 1;      // 0=Quit 1=Continue (Continue is the natural default)
 
 // Focus is rendered as the button's own gold border (via the `primary`
@@ -1196,7 +1197,7 @@ var WEAPONS = {
         staminaMul: 1.0
     },
     epee: {
-        key: 'epee', name: 'ÉPÉE',
+        key: 'epee', name: 'EPEE',
         blurb: 'NO RIGHT OF WAY · WHOLE BODY',
         desc: 'No priority rules. Hit first, or hit together and you BOTH score. Longest reach.',
         reach: 2.15,
@@ -1347,16 +1348,22 @@ function styleNameFor(fencer) {
 var ai = null;
 
 function newAI() {
+    // Reaction is expressed as a FRACTION of the weapon's extend time, not as
+    // a fixed millisecond figure. A flat 215ms against a 170ms lunge meant the
+    // attack had already landed before the AI was allowed to perceive it, so
+    // on Normal it could essentially never parry.
+    var w0 = weapon();
     var k;
     if (difficulty === 0) {
-        // EASY — slow to see the attack, rarely blocks, holds a safe distance
-        k = { reactionMs: 380, parryChance: 0.24, lungeRatePerSec: 0.8, idealMin: 1.8, idealMax: 3.0, engageDist: 4.5, feintChance: 0.05, riposteChance: 0.35, mistake: 0.3 };
+        // EASY — usually too slow to catch the attack, holds a safe distance
+        k = { reactFrac: 1.05, parryChance: 0.30, lungeRatePerSec: 0.85, feintChance: 0.05, riposteChance: 0.35, mistake: 0.30 };
     } else if (difficulty === 2) {
-        // HARD — reads the attack fast, blocks and ripostes, presses distance
-        k = { reactionMs: 125, parryChance: 0.74, lungeRatePerSec: 2.0, idealMin: 1.45, idealMax: 2.5, engageDist: 3.7, feintChance: 0.3, riposteChance: 0.92, mistake: 0.04 };
+        // HARD — reads the attack early, blocks and ripostes, presses distance
+        k = { reactFrac: 0.42, parryChance: 0.80, lungeRatePerSec: 2.0, feintChance: 0.32, riposteChance: 0.92, mistake: 0.04 };
     } else {
-        k = { reactionMs: 215, parryChance: 0.5, lungeRatePerSec: 1.35, idealMin: 1.55, idealMax: 2.7, engageDist: 4.1, feintChance: 0.16, riposteChance: 0.68, mistake: 0.14 };
+        k = { reactFrac: 0.68, parryChance: 0.58, lungeRatePerSec: 1.4, feintChance: 0.18, riposteChance: 0.70, mistake: 0.14 };
     }
+    k.reactionMs = Math.round(w0.tExtend * k.reactFrac);
 
     var st = styleFor(bp2 && bp2.fencer);
     var strength = (bp2 && bp2.fencer && typeof bp2.fencer.strength === 'number') ? bp2.fencer.strength : 3;
@@ -1364,18 +1371,22 @@ function newAI() {
     var sB = (strength - 3) * 0.09;   // -0.27 .. +0.18
 
     var reach = weapon().reach;
+    // The centre-to-centre gap at which a lunge just reaches.
+    var hitGap = BODY_R * 2 + reach + LUNGE_ADVANCE;
     return {
         style: st,
-        reactionMs: Math.max(70, k.reactionMs - (strength - 3) * 34),
+        reactionMs: Math.max(55, k.reactionMs - (strength - 3) * 18),
         parryChance: clamp01(k.parryChance * st.parry + sB),
         riposteChance: clamp01(k.riposteChance * st.riposte + sB),
         feintChance: clamp01(k.feintChance * st.feint + sB * 0.5),
         lungeRatePerSec: k.lungeRatePerSec * st.aggr * (1 + sB),
         mistake: Math.max(0.01, k.mistake * (1 - sB)),
-        // Preferred measure, expressed relative to this weapon's actual reach.
-        idealMin: reach * 0.85 + st.dist,
-        idealMax: reach * 1.45 + st.dist,
-        engageDist: reach * 2.2 + st.dist,
+        // Preferred measure, expressed relative to the distance at which an
+        // attack can actually land. Sitting at 1.5-2.5m was deep inside lunge
+        // range, so the AI lived permanently inside the player's measure.
+        idealMin: hitGap * 0.80 + st.dist,
+        idealMax: hitGap * 1.18 + st.dist,
+        engageDist: hitGap * 1.65 + st.dist,
         patience: st.patience,
         moveJitterMs: [90, 240],
         perceivedAttackTimer: -1,
@@ -1461,6 +1472,17 @@ function updateAI(dt) {
     }
 
     // ── Distance management ──
+    // Never retreat off the rear limit — that concedes the touch outright.
+    var cornered = f.pos >= PISTE_HALF - 0.9;
+    if (cornered) {
+        if (f.stamina > STAM_COST.lunge && Math.random() < 0.5) {
+            startLunge(f, opp);            // fight out of the corner
+            ai.actionCooldown = 500;
+            return;
+        }
+        aiSetMove(dist < ai.idealMin ? 'hold' : 'advance');
+        return;
+    }
     if (dist > ai.engageDist) { aiSetMove('advance'); return; }
     if (dist < ai.idealMin) { aiSetMove('retreat'); return; }
     if (dist > ai.idealMax) { aiSetMove('advance'); return; }
@@ -1516,7 +1538,9 @@ function newFencerState(fencer, side) {
         lean: 0,            // -1 retreating, +1 advancing (torso weight)
         stepT: 0,
         stepFrame: 0,
+        skinIdx: skinFor(fencer),
         gasp: 0,            // out-of-breath indicator timer
+        endT: 0,            // time spent retreating on the rear limit
         streak: 0,          // consecutive touches scored
         scorePop: 0         // scoreboard digit pop timer
     };
@@ -1595,6 +1619,13 @@ function toggleSoundSetting() {
     saveSoundSettings();
     dirty = true;
 }
+function toggleSfxSetting() {
+    sfxOn = !sfxOn;
+    saveSoundSettings();
+    if (sfxOn) sfxMenuConfirm();
+    dirty = true;
+}
+
 function toggleMusicSetting() {
     musicOn = !musicOn;
     if (musicOn) {
@@ -1634,7 +1665,7 @@ function drawSettings() {
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     var dlgW = p ? VIEW_W - 40 : 340;
-    var dlgH = p ? 470 : 332;
+    var dlgH = Math.min(VIEW_H - 12, p ? 570 : 402);
     var dlgX = Math.round((VIEW_W - dlgW) / 2);
     var dlgY = Math.round((VIEW_H - dlgH) / 2);
     drawPixelRoundRect(dlgX, dlgY, dlgW, dlgH, 4, COLOR_GOLD);
@@ -1659,16 +1690,23 @@ function drawSettings() {
         drawButton(bx, by, bw, bh, 'Music: ' + (musicOn ? 'ON' : 'OFF'), settingsFocus === 1);
         _settingsRects.music = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap;
-        drawButton(bx, by, bw, bh, 'Difficulty: ' + _diffNames[difficulty], settingsFocus === 2);
+        // sfxOn was saved and honoured but had no way to change it.
+        drawButton(bx, by, bw, bh, 'Effects: ' + (sfxOn ? 'ON' : 'OFF'), settingsFocus === 2);
+        _settingsRects.sfx = { x: bx, y: by, w: bw, h: bh };
+        by += bh + gap;
+        drawButton(bx, by, bw, bh, 'Weapon: ' + weapon().name, settingsFocus === 3);
+        _settingsRects.weapon = { x: bx, y: by, w: bw, h: bh };
+        by += bh + gap;
+        drawButton(bx, by, bw, bh, 'Difficulty: ' + _diffNames[difficulty], settingsFocus === 4);
         _settingsRects.difficulty = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap;
-        drawButton(bx, by, bw, bh, 'How to Play', settingsFocus === 3);
+        drawButton(bx, by, bw, bh, 'How to Play', settingsFocus === 5);
         _settingsRects.tutorial = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap;
-        drawButton(bx, by, bw, bh, 'Delete All Data', settingsFocus === 4);
+        drawButton(bx, by, bw, bh, 'Delete All Data', settingsFocus === 6);
         _settingsRects.del = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap + (p ? 6 : 4);
-        drawButton(bx, by, bw, bh, 'Close', settingsFocus === 5);
+        drawButton(bx, by, bw, bh, 'Close', settingsFocus === 7);
         _settingsRects.close = { x: bx, y: by, w: bw, h: bh };
     } else {
         // Confirmation
@@ -1704,7 +1742,7 @@ function drawTutorial() {
     ctx.fillStyle = 'rgba(0,0,0,0.78)';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     var dlgW = p ? VIEW_W - 30 : 440;
-    var dlgH = p ? VIEW_H - 80 : 340;
+    var dlgH = Math.min(VIEW_H - 16, p ? VIEW_H - 80 : 356);
     var dlgX = Math.round((VIEW_W - dlgW) / 2);
     var dlgY = Math.round((VIEW_H - dlgH) / 2);
     drawPixelRoundRect(dlgX, dlgY, dlgW, dlgH, 4, COLOR_GOLD);
@@ -2177,6 +2215,7 @@ function buildNextRound(t) {
 }
 
 function saveTournament() {
+    invalidateTournamentCache();
     if (!tournament) { try { localStorage.removeItem(TOURNEY_KEY); } catch(e) {} return; }
     try {
         // Strip out fencer objects, keep codes
@@ -2198,6 +2237,15 @@ function saveTournament() {
         };
         localStorage.setItem(TOURNEY_KEY, JSON.stringify(lite));
     } catch(e) {}
+}
+
+// Every drawFencer call site passed skinIdx 0, so the 2-5 tones per country
+// in fencers.json were never used. Derive a stable index from the code.
+function skinFor(fencer) {
+    if (!fencer || !fencer.skin || !fencer.skin.length) return 0;
+    var h = 0, c = fencer.code || '';
+    for (var i = 0; i < c.length; i++) h = (h * 37 + c.charCodeAt(i) * 7) & 0xffff;
+    return h % fencer.skin.length;
 }
 
 function fencerByCode(code) {
@@ -2238,6 +2286,7 @@ function loadTournament() {
 }
 
 function clearTournament() {
+    invalidateTournamentCache();
     tournament = null;
     try { localStorage.removeItem(TOURNEY_KEY); } catch(e) {}
 }
@@ -2658,6 +2707,11 @@ function updateBout(dt) {
 
         bp1.pos = Math.max(-PISTE_HALF, Math.min(PISTE_HALF, bp1.pos));
         bp2.pos = Math.max(-PISTE_HALF, Math.min(PISTE_HALF, bp2.pos));
+
+        // Running out of piste concedes the touch, as it does in the sport.
+        // Without this the rear five metres were purely decorative and
+        // endless retreating was a free defence.
+        if (checkPisteEnd(bp1, bp2, dt) || checkPisteEnd(bp2, bp1, dt)) return;
         var minGap = 2 * BODY_R + 0.1;
         if (bp2.pos - bp1.pos < minGap) {
             var mid = (bp1.pos + bp2.pos) / 2;
@@ -2709,6 +2763,26 @@ function updateBout(dt) {
         dirty = true;
         return;
     }
+}
+
+// A fencer pinned on their rear limit who keeps retreating gives up a point.
+var PISTE_END_GRACE = 650;   // ms of grace before the referee calls it
+function checkPisteEnd(f, opp, dt) {
+    var atEnd = (f.side === 1) ? (f.pos <= -PISTE_HALF + 0.02)
+                               : (f.pos >= PISTE_HALF - 0.02);
+    var keys = (f.side === 1) ? bp1Keys : bp2Keys;
+    if (!atEnd || !keys.retreat || f.act !== 'idle') {
+        f.endT = 0;
+        return false;
+    }
+    f.endT = (f.endT || 0) + dt;
+    if (f.endT < PISTE_END_GRACE) return false;
+    f.endT = 0;
+    scoreTouch(opp, null, null);
+    boutMsg = (f.side === 1) ? 'OFF THE END' : 'THEY RAN OUT OF PISTE';
+    boutMsgSub = (f.side === 1) ? 'YOU RETREATED PAST THE LINE — POINT AGAINST'
+                                : 'POINT TO YOU';
+    return true;
 }
 
 // Footwork step cadence — a step sound and a puff of dust on each footfall.
@@ -3171,6 +3245,9 @@ var _titleTourneyBtn = { x: 0, y: 0, w: 0, h: 0 };
 var _titlePracticeBtn = { x: 0, y: 0, w: 0, h: 0 };
 var _titleRosterBtn = { x: 0, y: 0, w: 0, h: 0 };
 var _titleSettingsBtn = { x: 0, y: 0, w: 0, h: 0 };
+var _title2PBtn = { x: 0, y: 0, w: 0, h: 0 };
+var _titleStatsBtn = { x: 0, y: 0, w: 0, h: 0 };
+var _titleQuickBtn = { x: 0, y: 0, w: 0, h: 0 };
 
 function drawTitle() {
     var p = isPortrait();
@@ -3209,9 +3286,9 @@ function drawTitle() {
     ctx.fillStyle = 'rgba(255,255,255,0.8)';
     ctx.fillText('BY JORGE GONZALEZ MEDINA', VIEW_W / 2, barH - (p ? 16 : 12));
 
-    // Three stacked main buttons (Tournament / Practice / Roster). Difficulty
-    // moved into the Settings modal; Settings button is now in the footer.
-    var totalBtnH = btnH * 3 + btnGap * 2;
+    // Five stacked main buttons. Difficulty lives in the Settings modal;
+    // Settings and Records sit in the footer row.
+    var totalBtnH = btnH * 5 + btnGap * 4;
     var btnTopY = footerY - totalBtnH - (p ? 20 : 14);
 
     // Available middle space between banner and buttons. Sprite size is sized
@@ -3225,8 +3302,8 @@ function drawTitle() {
     // Cap so the sprite uses at most 70% (landscape) / 78% (portrait) of midSpaceH.
     var fillRatio = p ? 0.78 : 0.70;
     var maxSpriteH = midSpaceH * fillRatio;
-    var spriteSize = Math.max(1.5, Math.min(p ? 4.84 : 3.4, maxSpriteH / (19 * 1.8)));
-    var spritePxH = 19 * 1.8 * spriteSize;
+    var spriteSize = Math.max(1.5, Math.min(p ? 4.84 : 3.4, maxSpriteH / (20 * 1.8)));
+    var spritePxH = 20 * 1.8 * spriteSize;
     // Place feet on the piste; piste sits a little below midSpaceCY so the
     // sprite's BODY (not feet) ends up roughly at midSpaceCY.
     var pisteCY = Math.round(midSpaceCY + spritePxH * 0.35);
@@ -3250,24 +3327,49 @@ function drawTitle() {
         // Sine wave 0..1 over a 2.4-second cycle. Keep mostly extended (offset
         // 0.55 + 0.45*sin) so the blade is visible most of the time.
         var titleBladeExt = 0.55 + 0.45 * Math.sin(t / 380);
-        drawFencer(VIEW_W / 2, pisteCY, titleFencer, spriteSize, 'right', 'en-garde', 0,
-            { bobFrame: titleBob, bladeExt: titleBladeExt });
+        drawFencer(VIEW_W / 2, pisteCY, titleFencer, spriteSize, 'right', 'en-garde',
+            skinFor(titleFencer), { bobFrame: titleBob, bladeExt: titleBladeExt });
     }
 
-    var savedTourney = !!loadTournament();
-    var tourneyLabel = savedTourney ? 'Continue Tournament' : 'Tournament';
-    drawButton(VIEW_W / 2 - btnW / 2, btnTopY, btnW, btnH, tourneyLabel, titleFocus === 0);
-    drawButton(VIEW_W / 2 - btnW / 2, btnTopY + btnH + btnGap, btnW, btnH, 'Practice Bout', titleFocus === 1);
-    drawButton(VIEW_W / 2 - btnW / 2, btnTopY + (btnH + btnGap) * 2, btnW, btnH, 'Roster', titleFocus === 2);
-    _titleTourneyBtn = { x: VIEW_W / 2 - btnW / 2, y: btnTopY, w: btnW, h: btnH };
-    _titlePracticeBtn = { x: VIEW_W / 2 - btnW / 2, y: btnTopY + btnH + btnGap, w: btnW, h: btnH };
-    _titleRosterBtn = { x: VIEW_W / 2 - btnW / 2, y: btnTopY + (btnH + btnGap) * 2, w: btnW, h: btnH };
+    var tourneyLabel = hasSavedTournament() ? 'Continue Tournament' : 'Tournament';
+    var bx = VIEW_W / 2 - btnW / 2;
+    var rowY = btnTopY;
+    drawButton(bx, rowY, btnW, btnH, tourneyLabel, titleFocus === 0);
+    _titleTourneyBtn = { x: bx, y: rowY, w: btnW, h: btnH }; rowY += btnH + btnGap;
+    drawButton(bx, rowY, btnW, btnH, 'Quick Bout', titleFocus === 1);
+    _titleQuickBtn = { x: bx, y: rowY, w: btnW, h: btnH }; rowY += btnH + btnGap;
+    drawButton(bx, rowY, btnW, btnH, 'Choose & Fence', titleFocus === 2);
+    _titlePracticeBtn = { x: bx, y: rowY, w: btnW, h: btnH }; rowY += btnH + btnGap;
+    drawButton(bx, rowY, btnW, btnH, '2 Players', titleFocus === 3);
+    _title2PBtn = { x: bx, y: rowY, w: btnW, h: btnH }; rowY += btnH + btnGap;
+    drawButton(bx, rowY, btnW, btnH, 'Roster', titleFocus === 4);
+    _titleRosterBtn = { x: bx, y: rowY, w: btnW, h: btnH };
 
-    // Settings — bottom-right footer (matches Pixel Rugby's placement)
+    // Footer: Records bottom-left, Settings bottom-right
+    var recX = footerMargin + SAFE_X;
+    drawButton(recX, footerY, footerBtnW, footerBtnH, 'Records', titleFocus === 5);
+    _titleStatsBtn = { x: recX, y: footerY, w: footerBtnW, h: footerBtnH };
     var setX = VIEW_W - footerBtnW - footerMargin - SAFE_X;
-    drawButton(setX, footerY, footerBtnW, footerBtnH, 'Settings', titleFocus === 3);
+    drawButton(setX, footerY, footerBtnW, footerBtnH, 'Settings', titleFocus === 6);
     _titleSettingsBtn = { x: setX, y: footerY, w: footerBtnW, h: footerBtnH };
+
+    // Current weapon, so the player always knows what Quick Bout will start.
+    ctx.font = 'bold ' + (p ? 9 : 7) + 'px ' + FONT;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillText(weapon().name + '  ·  ' + _diffNames[difficulty],
+        VIEW_W / 2, footerY + footerBtnH / 2);
 }
+
+// loadTournament() parses JSON and rebuilds objects; calling it every frame
+// from drawTitle was pure waste. Cache the answer and invalidate on write.
+var _savedTourneyCache = null;
+function hasSavedTournament() {
+    if (_savedTourneyCache === null) _savedTourneyCache = !!loadTournament();
+    return _savedTourneyCache;
+}
+function invalidateTournamentCache() { _savedTourneyCache = null; }
 
 // ── Roster gallery ──
 // 4×4 grid of all fencers in en-garde, country code below. Tap one to flip
@@ -3316,18 +3418,28 @@ function drawRoster() {
         drawFlag(cardX + 4, cardY + 4, flagW, flagH, f.code);
 
         // Sprite — feet sit a bit above the label
-        var labelH = p ? 14 : 11;
-        var feetY = cardY + cardH - labelH - 6;
-        var spriteSize = Math.max(1.4, Math.min(2.8, (cellH - labelH - 24) / 22));
+        var labelH = p ? 22 : 18;
+        var feetY = cardY + cardH - labelH - 4;
+        var spriteSize = Math.max(1.3, Math.min(2.6, (cellH - labelH - 22) / 22));
         var pose = rosterFlipped[f.code] ? 'lunge' : 'en-garde';
-        drawFencer(cx, feetY, f, spriteSize, 'right', pose, 0);
+        drawFencer(cx, feetY, f, spriteSize, 'right', pose, skinFor(f));
 
         // Label
         ctx.font = 'bold ' + (p ? 10 : 8) + 'px ' + FONT;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#fff';
-        ctx.fillText(f.code, cx, cardY + cardH - labelH / 2 - 1);
+        ctx.fillText(f.code, cx, cardY + cardH - labelH + 4);
+
+        // Style label sits under the code, clear of the sprite.
+        ctx.font = (p ? 6 : 5) + 'px ' + FONT;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = COLOR_GOLD;
+        ctx.fillText(styleNameFor(f), cx, cardY + cardH - 6);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.font = (p ? 7 : 6) + 'px ' + FONT;
+        ctx.fillText(f.strength + '*', cardX + cardW - 4, cardY + 9);
 
         _rosterCells.push({ x: cardX, y: cardY, w: cardW, h: cardH, code: f.code });
     }
@@ -3618,6 +3730,20 @@ function drawPriorityIndicator(yCenter) {
         mine ? 'ATTACK' : 'BLOCK!', mine ? COLOR_GOLD : '#ff5555', mine);
 }
 
+// Flash a warning once the player is past their rear warning line.
+function drawPisteWarning(yCenter) {
+    if (!bp1 || state !== S_BOUT_PLAY) return;
+    if (bp1.pos > -5) return;
+    var atEnd = bp1.pos <= -PISTE_HALF + 0.05;
+    if (Math.floor(performance.now() / 260) % 2 === 0 && !atEnd) return;
+    ctx.font = 'bold 8px ' + FONT;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = atEnd ? '#ff5555' : '#ffaa44';
+    ctx.fillText(atEnd ? 'END OF PISTE!' : 'RUNNING OUT OF PISTE',
+        pisteX(bp1.pos), yCenter + 20);
+}
+
 function drawCallout(x, y, label, color, up) {
     ctx.font = 'bold 9px ' + FONT;
     ctx.textAlign = 'center';
@@ -3751,12 +3877,12 @@ function drawBoutMessage(yCenter) {
 // Touch gesture state for the bout. Mobile uses no on-screen buttons —
 // instead: hold left/right half = walk, tap = lunge, swipe down = parry,
 // swipe up = lunge.
-var _touchStartX = 0, _touchStartY = 0, _touchStartT = 0;
 var _touchActive = false;
-var _touchSwipeFired = false;
-var TOUCH_SWIPE_DIST = 22;
-var TOUCH_TAP_MS = 200;
-var TOUCH_HOLD_MS = 180;
+// Swipe threshold in VIEW units. 22 was ~17 real px in portrait, so ordinary
+// thumb drift while holding to walk fired unintended attacks.
+var TOUCH_SWIPE_DIST = 34;
+var TOUCH_TAP_MS = 190;
+var TOUCH_HOLD_MS = 210;   // must exceed TOUCH_TAP_MS or tap and hold overlap
 
 function boutTouchControlsH() { return 0; }
 
@@ -3953,6 +4079,56 @@ function drawReferee(x, yFeet, s) {
     r(0, 5, 4, 1, '#0d0d0d');
 }
 
+// Leaving the result screen: back to the bracket, the podium, or the title.
+function advanceFromBoutResult() {
+    if (boutContext === 'tournament' && tournament) {
+        if (tournament.champion && tournament.champion.code === tournament.playerCode) {
+            state = S_CHAMPION;
+            sfxChampion();
+            spawnConfetti(tournament.champion.colors);
+        } else if (tournament.playerEliminated) {
+            state = S_GAME_OVER;
+            sfxDefeat();
+        } else {
+            state = S_BRACKET;
+            sfxMenuConfirm();
+        }
+        if (musicOn) {
+            currentTrack = null;
+            setTrack(state === S_CHAMPION ? 'champion' : 'menu');
+        }
+        dirty = true;
+    } else {
+        exitBout();
+    }
+}
+
+// Restart the same pairing without walking back through the menus.
+function boutRematch() {
+    sfxMenuConfirm();
+    var wasTwoPlayer = twoPlayer;
+    startBout(bp1.fencer, bp2.fencer, { twoPlayer: wasTwoPlayer, target: BOUT_TARGET });
+}
+
+// Small quit control, always present — ESC is desktop-only and mobile players
+// were previously locked into a bout until someone reached the target.
+var _boutQuitBtn = { x: 0, y: 0, w: 0, h: 0 };
+function drawBoutQuit() {
+    var p = isPortrait();
+    var w = p ? 34 : 28, h = p ? 22 : 18;
+    var x = VIEW_W - SAFE_X - w - 6;
+    var y = VIEW_H - h - 4;
+    ctx.globalAlpha = 0.55;
+    drawPixelRoundRect(x, y, w, h, 2, COLOR_BG_DARK);
+    ctx.globalAlpha = 1;
+    ctx.font = 'bold ' + (p ? 8 : 7) + 'px ' + FONT;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.fillText('QUIT', x + w / 2, y + h / 2);
+    _boutQuitBtn = { x: x, y: y, w: w, h: h };
+}
+
 function drawBout() {
     var p = isPortrait();
     ctx.fillStyle = COLOR_BG;
@@ -3988,9 +4164,11 @@ function drawBout() {
     fxDrawParticles();
 
     drawPriorityIndicator(pisteY);
+    drawPisteWarning(pisteY);
     drawScoreRibbon();
     drawBoutMessage(pisteY);
     drawBoutControlsHint(VIEW_H - 10);
+    if (state !== S_BOUT_RESULT) drawBoutQuit();
 
     fxDrawFlash();
 
@@ -4045,6 +4223,174 @@ var _boutResultBtn = { x: 0, y: 0, w: 0, h: 0 };
 var _boutRematchBtn = { x: 0, y: 0, w: 0, h: 0 };
 var boutResultFocus = 0;
 
+// ── Records screen ─────────────────────────────────────────────────────────
+//
+// Everything the player has done, kept across sessions. Without this nothing
+// carries between sittings and there's no reason to come back.
+
+var _statsBackBtn = { x: 0, y: 0, w: 0, h: 0 };
+var _statsResetBtn = { x: 0, y: 0, w: 0, h: 0 };
+var statsFocus = 0;
+
+function enterStats() {
+    sfxMenuConfirm();
+    statsFocus = 0;
+    state = S_STATS;
+    dirty = true;
+}
+
+function pct(a, b) {
+    var t = a + b;
+    return t === 0 ? '—' : Math.round((a / t) * 100) + '%';
+}
+
+function drawStatsScreen() {
+    var p = isPortrait();
+    ctx.fillStyle = COLOR_BG;
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    drawBar('RECORDS', '', '');
+
+    var s = stats || defaultStats();
+    var top = BAR_H + (p ? 18 : 12);
+    var colGap = 16;
+    var margin = SAFE_X + (p ? 18 : 26);
+    var colW = (VIEW_W - margin * 2 - colGap) / 2;
+    var lh = p ? 16 : 13;
+    var fs = p ? 9 : 8;
+
+    function section(x, y, title) {
+        ctx.font = 'bold ' + fs + 'px ' + FONT;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = COLOR_GOLD;
+        ctx.fillText(title, x, y);
+        ctx.fillStyle = 'rgba(255,255,255,0.18)';
+        ctx.fillRect(x, y + Math.round(lh * 0.45), colW, 1);
+        return y + lh;
+    }
+    function row(x, y, k, v) {
+        ctx.font = fs + 'px ' + FONT;
+        ctx.textAlign = 'left';
+        ctx.fillStyle = 'rgba(255,255,255,0.72)';
+        ctx.fillText(k, x, y);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(String(v), x + colW, y);
+        return y + lh;
+    }
+
+    // ── Left column: career ──
+    var lx = margin, ly = top;
+    ly = section(lx, ly, 'CAREER');
+    ly = row(lx, ly, 'BOUTS', s.bouts);
+    ly = row(lx, ly, 'WON', s.wins);
+    ly = row(lx, ly, 'LOST', s.losses);
+    ly = row(lx, ly, 'WIN RATE', pct(s.wins, s.losses));
+    ly = row(lx, ly, 'BEST STREAK', s.bestStreak);
+    ly = row(lx, ly, 'CURRENT STREAK', s.curStreak);
+    ly += 4;
+    ly = section(lx, ly, 'TOUCHES');
+    ly = row(lx, ly, 'SCORED', s.touchesFor);
+    ly = row(lx, ly, 'CONCEDED', s.touchesAgainst);
+    ly = row(lx, ly, 'DIFFERENCE',
+        (s.touchesFor - s.touchesAgainst > 0 ? '+' : '') + (s.touchesFor - s.touchesAgainst));
+
+    // ── Right column: technique + weapons ──
+    var rx = margin + colW + colGap, ry = top;
+    ry = section(rx, ry, 'TECHNIQUE');
+    ry = row(rx, ry, 'PARRIES', s.parries);
+    ry = row(rx, ry, 'RIPOSTES LANDED', s.ripostes);
+    ry = row(rx, ry, 'FEINTS LANDED', s.feints);
+    ry = row(rx, ry, 'DOUBLE TOUCHES', s.doubles);
+    ry += 4;
+    ry = section(rx, ry, 'BY WEAPON');
+    for (var i = 0; i < WEAPON_ORDER.length; i++) {
+        var wk = WEAPON_ORDER[i];
+        var bw = (s.byWeapon && s.byWeapon[wk]) || { w: 0, l: 0 };
+        ry = row(rx, ry, WEAPONS[wk].name, bw.w + 'W ' + bw.l + 'L');
+    }
+    ry += 4;
+    ry = section(rx, ry, 'TOURNAMENTS');
+    ry = row(rx, ry, 'ENTERED', s.tournaments);
+    ry = row(rx, ry, 'FINALS', s.finals);
+    ry = row(rx, ry, 'TITLES WON', s.titles);
+
+    // ── Most-used country ──
+    var best = null, bestN = 0;
+    for (var code in s.byCountry) {
+        var c = s.byCountry[code];
+        var n = c.w + c.l;
+        if (n > bestN) { bestN = n; best = code; }
+    }
+    if (best) {
+        var f = fencerByCode(best);
+        ctx.font = fs + 'px ' + FONT;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.fillText('MOST FENCED: ' + (f ? f.name.toUpperCase() : best) +
+            '  (' + s.byCountry[best].w + 'W ' + s.byCountry[best].l + 'L)',
+            VIEW_W / 2, Math.max(ly, ry) + lh);
+    }
+
+    var btnH = p ? 42 : 30;
+    var btnW = p ? 150 : 120;
+    var btnY = VIEW_H - btnH - (p ? 18 : 12);
+    drawButton(SAFE_X + (p ? 18 : 26), btnY, btnW, btnH, 'Back', statsFocus === 0);
+    _statsBackBtn = { x: SAFE_X + (p ? 18 : 26), y: btnY, w: btnW, h: btnH };
+    var rX = VIEW_W - btnW - SAFE_X - (p ? 18 : 26);
+    drawButton(rX, btnY, btnW, btnH, 'Reset', statsFocus === 1);
+    _statsResetBtn = { x: rX, y: btnY, w: btnW, h: btnH };
+}
+
+// ── Mode entry points ──────────────────────────────────────────────────────
+
+// Straight into a bout with the saved favourite and last weapon. The old flow
+// was five taps between every 30-second bout.
+function enterQuickBout() {
+    ensureAudioStarted();
+    sfxMenuConfirm();
+    boutContext = 'practice';
+    var mine = fencerByCode(loadFavorite()) || FENCERS[0];
+    if (!mine) return;
+    var opp = randomOpponent(mine.code);
+    startBout(mine, opp, { target: 5 });
+}
+
+function enterTwoPlayer() {
+    ensureAudioStarted();
+    sfxMenuConfirm();
+    boutContext = 'versus';
+    twoPlayerPending = true;
+    fsHighlightCode = loadFavorite() || (FENCERS[0] && FENCERS[0].code) || '';
+    fsFocusIdx = 0;
+    for (var i = 0; i < FENCERS.length; i++) {
+        if (FENCERS[i].code === fsHighlightCode) { fsFocusIdx = i; break; }
+    }
+    fs2pStage = 1;
+    fs2pFirst = null;
+    state = S_FENCER_SELECT;
+    dirty = true;
+}
+
+function randomOpponent(excludeCode) {
+    var pool = [];
+    for (var i = 0; i < FENCERS.length; i++) {
+        if (FENCERS[i].code !== excludeCode) pool.push(FENCERS[i]);
+    }
+    if (!pool.length) return FENCERS[0];
+    return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function cycleWeapon(dir) {
+    var i = WEAPON_ORDER.indexOf(weaponKey);
+    if (i < 0) i = 0;
+    i = (i + (dir || 1) + WEAPON_ORDER.length) % WEAPON_ORDER.length;
+    weaponKey = WEAPON_ORDER[i];
+    saveWeapon();
+    sfxMenuMove();
+    dirty = true;
+}
+
 // ── Fencer-select carousel ──
 //
 // Grid of all 16 fencers; click one to confirm. Used at the start of a new
@@ -4055,17 +4401,25 @@ var fsHighlightCode = '';
 var _fsCells = [];
 var _fsConfirmBtn = { x:0, y:0, w:0, h:0 };
 var _fsBackBtn = { x:0, y:0, w:0, h:0 };
+var _fsWeaponBtns = [];
+var twoPlayerPending = false;
+var fs2pStage = 0;      // 0 = single player, 1 = P1 picking, 2 = P2 picking
+var fs2pFirst = null;
 
 function drawFencerSelect() {
     var p = isPortrait();
     ctx.fillStyle = COLOR_BG;
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-    drawBar('PICK YOUR FENCER', '', _diffNames[difficulty]);
+    var title = (fs2pStage === 1) ? 'PLAYER 1 — PICK'
+              : (fs2pStage === 2) ? 'PLAYER 2 — PICK'
+              : 'PICK YOUR FENCER';
+    drawBar(title, '', _diffNames[difficulty]);
 
     var cols = 4, rows = 4;
-    var topPad = BAR_H + (p ? 20 : 14);
+    var wpnRowH = p ? 30 : 24;
+    var topPad = BAR_H + wpnRowH + (p ? 18 : 12);
     var bottomBtnH = p ? 44 : 30;
-    var bottomPad = bottomBtnH + (p ? 28 : 18);
+    var bottomPad = bottomBtnH + (p ? 56 : 44);
     var gridH = VIEW_H - topPad - bottomPad;
     var gridW = Math.min(VIEW_W - 24, p ? VIEW_W - 24 : 480);
     var gridX = Math.round((VIEW_W - gridW) / 2);
@@ -4095,7 +4449,7 @@ function drawFencerSelect() {
         var labelH = p ? 14 : 11;
         var feetY = cardY + cardH - labelH - 6;
         var spriteSize = Math.max(1.4, Math.min(2.8, (cellH - labelH - 24) / 22));
-        drawFencer(cardX + cardW / 2, feetY, f, spriteSize, 'right', 'en-garde', 0);
+        drawFencer(cardX + cardW / 2, feetY, f, spriteSize, 'right', 'en-garde', skinFor(f));
 
         ctx.font = 'bold ' + (p ? 10 : 8) + 'px ' + FONT;
         ctx.textAlign = 'center';
@@ -4110,6 +4464,35 @@ function drawFencerSelect() {
         ctx.fillText(f.strength + '*', cardX + cardW - 4, cardY + 9);
 
         _fsCells.push({ x: cardX, y: cardY, w: cardW, h: cardH, code: f.code });
+    }
+
+    // ── Weapon selector ──
+    // Sits above the grid because it changes how the whole bout plays, not
+    // just who you look like.
+    var wy = BAR_H + (p ? 6 : 4);
+    var wBtnW = Math.min(110, Math.floor((gridW - 16) / 3));
+    var wStartX = Math.round(VIEW_W / 2 - (wBtnW * 3 + 12) / 2);
+    _fsWeaponBtns = [];
+    for (var wi = 0; wi < WEAPON_ORDER.length; wi++) {
+        var wk = WEAPON_ORDER[wi];
+        var wx = wStartX + wi * (wBtnW + 6);
+        var sel = (wk === weaponKey);
+        drawButton(wx, wy, wBtnW, wpnRowH - 6, WEAPONS[wk].name, sel);
+        _fsWeaponBtns.push({ x: wx, y: wy, w: wBtnW, h: wpnRowH - 6, key: wk });
+    }
+
+    // What the highlighted fencer and weapon actually mean.
+    ctx.font = (p ? 8 : 7) + 'px ' + FONT;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    var infoY = VIEW_H - bottomBtnH - (p ? 26 : 20);
+    ctx.fillText(weapon().blurb, VIEW_W / 2, infoY - (p ? 11 : 9));
+    var hf = fencerByCode(fsHighlightCode);
+    if (hf) {
+        ctx.fillStyle = COLOR_GOLD;
+        ctx.fillText(hf.name.toUpperCase() + '  ·  ' + styleNameFor(hf) +
+            '  ·  ' + hf.strength + '/5', VIEW_W / 2, infoY);
     }
 
     // Footer: Back + Confirm
@@ -4259,8 +4642,8 @@ function drawMatchIntro() {
     var flagH = p ? 24 : 19;
     drawFlag(leftX - flagW / 2, spriteY - 110, flagW, flagH, playerFencer.code);
     drawFlag(rightX - flagW / 2, spriteY - 110, flagW, flagH, opponent.code);
-    drawFencer(leftX, spriteY, playerFencer, spriteSize, 'right', 'en-garde', 0);
-    drawFencer(rightX, spriteY, opponent, spriteSize, 'left', 'en-garde', 0);
+    drawFencer(leftX, spriteY, playerFencer, spriteSize, 'right', 'salute', skinFor(playerFencer));
+    drawFencer(rightX, spriteY, opponent, spriteSize, 'left', 'salute', skinFor(opponent));
 
     // VS in middle
     ctx.font = 'bold ' + (p ? 28 : 22) + 'px ' + FONT;
@@ -4306,13 +4689,27 @@ function drawChampion() {
     ctx.fillStyle = COLOR_GOLD;
     ctx.fillText('CHAMPION!', VIEW_W / 2, BAR_H + (p ? 60 : 48));
 
-    var spriteY = Math.round(VIEW_H * 0.58);
-    var spriteSize = p ? 7 : 6;
-    drawFencer(VIEW_W / 2, spriteY, champ, spriteSize, 'right', 'lunge', 0);
+    // Fit the sprite to the gap between the title and the name plate so it
+    // never grows up over the heading.
+    var headingBottom = BAR_H + (p ? 78 : 62);
+    var nameY = Math.round(VIEW_H * 0.74);
+    var room = nameY - 24 - headingBottom;
+    var spriteSize = Math.max(2, Math.min(p ? 6 : 5, room / (20 * 1.8)));
+    var spriteY = nameY - 22;
+
+    // Podium
+    var podW = Math.round(48 * spriteSize);
+    ctx.fillStyle = '#0a1c33';
+    ctx.fillRect(Math.round(VIEW_W / 2 - podW / 2), spriteY, podW, 10);
+    ctx.fillStyle = COLOR_GOLD;
+    ctx.fillRect(Math.round(VIEW_W / 2 - podW / 2), spriteY, podW, 2);
+
+    drawFencer(VIEW_W / 2, spriteY, champ, spriteSize, 'right', 'victory', skinFor(champ),
+        { bobFrame: Math.floor(performance.now() / 300) });
 
     ctx.font = 'bold ' + (p ? 16 : 12) + 'px ' + FONT;
     ctx.fillStyle = '#fff';
-    ctx.fillText(champ.name.toUpperCase(), VIEW_W / 2, spriteY + 18);
+    ctx.fillText(champ.name.toUpperCase(), VIEW_W / 2, nameY);
 
     // Confetti above everything except button
     drawConfetti();
@@ -4419,8 +4816,9 @@ function exitRoster() {
 
 function enterPracticeBout() {
     ensureAudioStarted();
-    sfxBlade();
+    sfxMenuConfirm();
     boutContext = 'practice';
+    fs2pStage = 0;
     fsHighlightCode = loadFavorite() || (FENCERS[0] && FENCERS[0].code) || '';
     // Sync focus to highlight
     fsFocusIdx = 0;
@@ -4452,21 +4850,33 @@ function enterTournament() {
 
 function confirmFencerSelect() {
     if (!fsHighlightCode) return;
+    sfxMenuConfirm();
+
+    // Two-player: the first pick belongs to P1, then P2 chooses.
+    if (boutContext === 'versus') {
+        if (fs2pStage === 1) {
+            fs2pFirst = fencerByCode(fsHighlightCode);
+            saveFavorite(fsHighlightCode);
+            fs2pStage = 2;
+            dirty = true;
+            return;
+        }
+        var second = fencerByCode(fsHighlightCode);
+        fs2pStage = 0;
+        startBout(fs2pFirst, second, { twoPlayer: true, target: 5 });
+        return;
+    }
+
     saveFavorite(fsHighlightCode);
-    sfxBlade();
     if (boutContext === 'tournament') {
         tournament = newTournament(fsHighlightCode);
+        if (stats) { stats.tournaments++; saveStats(); }
         saveTournament();
         state = S_BRACKET;
         dirty = true;
     } else {
-        // Practice — pick a random opponent that isn't the player
-        var opp = null;
-        var pool = [];
-        for (var i = 0; i < FENCERS.length; i++) if (FENCERS[i].code !== fsHighlightCode) pool.push(FENCERS[i]);
-        opp = pool[Math.floor(Math.random() * pool.length)] || FENCERS[0];
         var player = fencerByCode(fsHighlightCode);
-        startBout(player, opp);
+        startBout(player, randomOpponent(fsHighlightCode), { target: 5 });
     }
 }
 
@@ -4539,6 +4949,7 @@ function finishTournamentMatch() {
     }
     match.played = true;
     if (!playerWon) tournament.playerEliminated = true;
+    if (stats && round0IsFinal(tournament)) { stats.finals++; }
     simulateRemainingMatches(tournament);
     var round = tournament.rounds[tournament.roundIdx];
     var allPlayed = true;
@@ -4549,19 +4960,52 @@ function finishTournamentMatch() {
         // Just finished the final
         if (!tournament.champion) tournament.champion = round[0].winner;
     }
+    // Once the player is out, run the rest of the draw to completion so the
+    // Eliminated screen can actually name the champion.
+    if (tournament.playerEliminated) simulateToChampion(tournament);
+    if (stats && tournament.champion &&
+        tournament.champion.code === tournament.playerCode) {
+        stats.titles++;
+        saveStats();
+    }
     saveTournament();
 }
 
+function round0IsFinal(t) {
+    return t.rounds[t.roundIdx] && t.rounds[t.roundIdx].length === 1;
+}
+
+// Play out every remaining round with the CPU so `champion` is never left null.
+function simulateToChampion(t) {
+    var guard = 0;
+    while (!t.champion && guard++ < 8) {
+        simulateRemainingMatches(t);
+        var r = t.rounds[t.roundIdx];
+        if (r.length === 1) { t.champion = r[0].winner; break; }
+        buildNextRound(t);
+    }
+}
+
 function exitBout() {
-    sfxBlade();
+    sfxMenuBack();
     ai = null;
     if (musicOn) { currentTrack = null; setTrack('menu'); }
     if (boutContext === 'tournament' && tournament) {
-        // Mid-bout quit — preserve tournament, return to bracket
-        state = S_BRACKET;
+        // Quitting a tournament bout is a forfeit. Returning to the bracket
+        // with the match still unplayed made it an unlimited free retry.
+        if (state === S_BOUT_INTRO || state === S_BOUT_PLAY || state === S_BOUT_HALT) {
+            bp2.touches = Math.max(bp2.touches, BOUT_TARGET);
+            statsRecordBout(false, bp1.touches, bp2.touches);
+            finishTournamentMatch();
+        }
+        state = tournament.playerEliminated ? S_GAME_OVER : S_BRACKET;
     } else {
+        if (state === S_BOUT_PLAY || state === S_BOUT_HALT) {
+            statsRecordBout(false, bp1.touches, bp2.touches);
+        }
         state = S_TITLE;
     }
+    twoPlayer = false;
     dirty = true;
 }
 
@@ -4587,6 +5031,8 @@ function onPointerDown(e) {
         if (settingsConfirmDelete === 0) {
             if (pointInRect(pt, _settingsRects.sound))      { toggleSoundSetting(); return; }
             if (pointInRect(pt, _settingsRects.music))      { toggleMusicSetting(); return; }
+            if (pointInRect(pt, _settingsRects.sfx))        { toggleSfxSetting(); return; }
+            if (pointInRect(pt, _settingsRects.weapon))     { cycleWeapon(1); return; }
             if (pointInRect(pt, _settingsRects.difficulty)) { cycleDifficulty(); return; }
             if (pointInRect(pt, _settingsRects.tutorial))   { settingsVisible = false; openTutorial(); return; }
             if (pointInRect(pt, _settingsRects.del))        { settingsConfirmDelete = 1; sfxBlade(); dirty = true; return; }
@@ -4607,11 +5053,21 @@ function onPointerDown(e) {
     }
 
     if (state === S_TITLE) {
-        if (pointInRect(pt, _titleSettingsBtn)) { openSettings(); return; }
-        if (pointInRect(pt, _titleTourneyBtn))  { enterTournament(); return; }
-        if (pointInRect(pt, _titlePracticeBtn)) { enterPracticeBout(); return; }
-        if (pointInRect(pt, _titleRosterBtn))   { enterRoster(); return; }
         ensureAudioStarted();
+        if (pointInRect(pt, _titleSettingsBtn)) { openSettings(); return; }
+        if (pointInRect(pt, _titleStatsBtn))    { enterStats(); return; }
+        if (pointInRect(pt, _titleTourneyBtn))  { enterTournament(); return; }
+        if (pointInRect(pt, _titleQuickBtn))    { enterQuickBout(); return; }
+        if (pointInRect(pt, _titlePracticeBtn)) { enterPracticeBout(); return; }
+        if (pointInRect(pt, _title2PBtn))       { enterTwoPlayer(); return; }
+        if (pointInRect(pt, _titleRosterBtn))   { enterRoster(); return; }
+        return;
+    }
+    if (state === S_STATS) {
+        if (pointInRect(pt, _statsBackBtn)) { sfxMenuBack(); state = S_TITLE; dirty = true; return; }
+        if (pointInRect(pt, _statsResetBtn)) {
+            stats = defaultStats(); saveStats(); sfxMenuConfirm(); dirty = true; return;
+        }
         return;
     }
     if (state === S_ROSTER) {
@@ -4628,7 +5084,15 @@ function onPointerDown(e) {
         return;
     }
     if (state === S_FENCER_SELECT) {
-        if (pointInRect(pt, _fsBackBtn)) { state = S_TITLE; sfxBlade(); dirty = true; return; }
+        for (var wj = 0; wj < _fsWeaponBtns.length; wj++) {
+            if (pointInRect(pt, _fsWeaponBtns[wj])) {
+                weaponKey = _fsWeaponBtns[wj].key; saveWeapon();
+                sfxMenuMove(); dirty = true; return;
+            }
+        }
+        if (pointInRect(pt, _fsBackBtn)) {
+            fs2pStage = 0; state = S_TITLE; sfxMenuBack(); dirty = true; return;
+        }
         if (pointInRect(pt, _fsConfirmBtn)) { confirmFencerSelect(); return; }
         for (var fi = 0; fi < _fsCells.length; fi++) {
             if (pointInRect(pt, _fsCells[fi])) {
@@ -4655,82 +5119,145 @@ function onPointerDown(e) {
         return;
     }
     if (state === S_BOUT_RESULT) {
-        if (pointInRect(pt, _boutResultBtn)) {
-            if (boutContext === 'tournament' && tournament) {
-                if (tournament.playerEliminated) { state = S_GAME_OVER; sfxDefeat(); }
-                else if (tournament.champion && tournament.champion.code === tournament.playerCode) {
-                    state = S_CHAMPION; sfxVictory();
-                    spawnConfetti(tournament.champion.colors);
-                }
-                else { state = S_BRACKET; sfxBlade(); }
-                if (musicOn) { currentTrack = null; setTrack('menu'); }
-                dirty = true;
-            } else {
-                exitBout();
-            }
-            return;
-        }
+        if (pointInRect(pt, _boutRematchBtn)) { boutRematch(); return; }
+        if (pointInRect(pt, _boutResultBtn)) { advanceFromBoutResult(); return; }
         return;
     }
     if (state === S_CHAMPION || state === S_GAME_OVER) {
         if (pointInRect(pt, _endScreenBtn)) { endScreenContinue(); return; }
         return;
     }
-    if (state === S_BOUT_PLAY && _isTouchDevice) {
-        // Begin a gesture: record start, no immediate action.
-        _touchStartX = pt.x;
-        _touchStartY = pt.y;
-        _touchStartT = performance.now();
-        _touchActive = true;
-        _touchSwipeFired = false;
+    if ((state === S_BOUT_PLAY || state === S_BOUT_INTRO || state === S_BOUT_HALT) &&
+        pointInRect(pt, _boutQuitBtn)) {
+        exitBout();
+        return;
     }
+    if (state === S_BOUT_PLAY) {
+        // Track each finger separately so moving and striking can overlap.
+        boutTouchStart(e);
+        _touchActive = true;
+    }
+}
+
+// ── Bout touch gestures ────────────────────────────────────────────────────
+//
+// Per-finger tracking. The old single-touch model meant a second finger
+// overwrote the first's start state, and lifting either one cancelled
+// movement — so you could not hold a direction with one thumb and strike
+// with the other, in a game entirely about closing distance and striking.
+//
+// One finger held anywhere = move (left half retreats, right half advances).
+// A separate tap = attack. Tap twice = feint. Swipe down = block.
+
+var _touches = {};        // identifier -> { x0, y0, t0, fired, moving }
+var _lastTapT = 0;
+
+function boutTouchId(e, changed) {
+    return (changed && changed.identifier !== undefined) ? changed.identifier : 'mouse';
+}
+
+function eachChanged(e, fn) {
+    if (e.changedTouches && e.changedTouches.length) {
+        for (var i = 0; i < e.changedTouches.length; i++) fn(e.changedTouches[i]);
+    } else {
+        fn(e);
+    }
+}
+
+function boutTouchStart(e) {
+    eachChanged(e, function (t) {
+        var pt = canvasCoords(t);
+        if (pt.x < 0) return;
+        _touches[boutTouchId(e, t)] = {
+            x0: pt.x, y0: pt.y, t0: performance.now(), fired: false, moving: false
+        };
+    });
+}
+
+function boutTouchMove(e) {
+    eachChanged(e, function (t) {
+        var id = boutTouchId(e, t);
+        var st = _touches[id];
+        if (!st || st.fired) return;
+        var pt = canvasCoords(t);
+        if (pt.x < 0) return;
+        var dx = pt.x - st.x0, dy = pt.y - st.y0;
+        var ax = Math.abs(dx), ay = Math.abs(dy);
+        if (Math.max(ax, ay) < TOUCH_SWIPE_DIST) return;
+        if (ay > ax * 1.3) {
+            // Vertical swipe: down blocks, up attacks.
+            st.fired = true;
+            if (dy > 0) startParry(bp1, bp2); else boutPlayerAttack();
+            releaseMove(st);
+        } else {
+            // Horizontal drag steers this finger's movement.
+            st.moving = true;
+            setMove(dx > 0 ? 'advance' : 'retreat');
+        }
+    });
+}
+
+function boutTouchEnd(e) {
+    eachChanged(e, function (t) {
+        var id = boutTouchId(e, t);
+        var st = _touches[id];
+        if (!st) return;
+        var held = performance.now() - st.t0;
+        if (!st.fired && !st.moving && held < TOUCH_TAP_MS) boutPlayerAttack();
+        releaseMove(st);
+        delete _touches[id];
+    });
+    if (!anyMovingTouch()) { bp1Keys.advance = false; bp1Keys.retreat = false; }
+}
+
+function anyMovingTouch() {
+    for (var k in _touches) if (_touches[k].moving) return true;
+    return false;
+}
+
+function setMove(dir) {
+    bp1Keys.advance = (dir === 'advance');
+    bp1Keys.retreat = (dir === 'retreat');
+}
+
+function releaseMove(st) {
+    if (st) st.moving = false;
+    if (!anyMovingTouch()) { bp1Keys.advance = false; bp1Keys.retreat = false; }
+}
+
+// Tap attacks; a second tap inside the feint window turns it into a feint,
+// which startLunge already handles when an attack is mid-extend.
+function boutPlayerAttack() {
+    startLunge(bp1, bp2);
+    _lastTapT = performance.now();
+}
+
+// Called every frame from updateBout — promotes a long stationary touch into
+// hold-to-walk once it is clearly neither a tap nor a swipe.
+function updateTouchHold() {
+    if (state !== S_BOUT_PLAY) return;
+    var now = performance.now();
+    var dir = null;
+    for (var k in _touches) {
+        var st = _touches[k];
+        if (st.fired) continue;
+        if (now - st.t0 < TOUCH_HOLD_MS) continue;
+        st.moving = true;
+        dir = (st.x0 < VIEW_W / 2) ? 'retreat' : 'advance';
+    }
+    if (dir) setMove(dir);
+    else if (!anyMovingTouch()) { bp1Keys.advance = false; bp1Keys.retreat = false; }
 }
 
 function onPointerMove(e) {
-    if (state !== S_BOUT_PLAY || !_isTouchDevice || !_touchActive || _touchSwipeFired) return;
+    if (state !== S_BOUT_PLAY) return;
     if (e.preventDefault) e.preventDefault();
-    var pt = canvasCoords(e);
-    if (pt.x < 0) return;
-    var dx = pt.x - _touchStartX;
-    var dy = pt.y - _touchStartY;
-    var ax = Math.abs(dx), ay = Math.abs(dy);
-    if (Math.max(ax, ay) < TOUCH_SWIPE_DIST) return;
-    _touchSwipeFired = true;
-    // Vertical swipe → lunge or parry
-    if (ay > ax) {
-        if (dy < 0) startLunge(bp1, bp2);
-        else        startParry(bp1, bp2);
-        bp1Keys.advance = false;
-        bp1Keys.retreat = false;
-    } else {
-        // Horizontal swipe → start walking that direction (held until release)
-        if (dx > 0) { bp1Keys.advance = true;  bp1Keys.retreat = false; }
-        else        { bp1Keys.retreat = true;  bp1Keys.advance = false; }
-    }
+    boutTouchMove(e);
 }
 
 function onPointerUp(e) {
-    if (state === S_BOUT_PLAY && _isTouchDevice && _touchActive) {
-        var dt = performance.now() - _touchStartT;
-        // Quick tap with no swipe → lunge
-        if (!_touchSwipeFired && dt < TOUCH_TAP_MS) {
-            startLunge(bp1, bp2);
-        }
-        bp1Keys.advance = false;
-        bp1Keys.retreat = false;
-        _touchActive = false;
-    }
-}
-
-// Called every frame from updateBout — promotes a long touch into a "hold to
-// walk" once it's clearly not a tap or swipe.
-function updateTouchHold() {
-    if (state !== S_BOUT_PLAY || !_isTouchDevice || !_touchActive || _touchSwipeFired) return;
-    var dt = performance.now() - _touchStartT;
-    if (dt < TOUCH_HOLD_MS) return;
-    // Held without swipe → walk in direction of touch start half
-    if (_touchStartX < VIEW_W / 2) { bp1Keys.retreat = true;  bp1Keys.advance = false; }
-    else                            { bp1Keys.advance = true;  bp1Keys.retreat = false; }
+    if (state === S_BOUT_PLAY) boutTouchEnd(e);
+    _touchActive = false;
 }
 
 // Helpers for grid navigation in 4-col layouts
@@ -4778,15 +5305,17 @@ function onKeyDown(e) {
             if (settingsConfirmDelete === 0) {
                 if (settingsFocus === 0) toggleSoundSetting();
                 else if (settingsFocus === 1) toggleMusicSetting();
-                else if (settingsFocus === 2) cycleDifficulty();
-                else if (settingsFocus === 3) { settingsVisible = false; openTutorial(); }
-                else if (settingsFocus === 4) { settingsConfirmDelete = 1; settingsFocus = 1; sfxBlade(); dirty = true; }
-                else if (settingsFocus === 5) closeSettings();
+                else if (settingsFocus === 2) toggleSfxSetting();
+                else if (settingsFocus === 3) cycleWeapon(1);
+                else if (settingsFocus === 4) cycleDifficulty();
+                else if (settingsFocus === 5) { settingsVisible = false; openTutorial(); }
+                else if (settingsFocus === 6) { settingsConfirmDelete = 1; settingsFocus = 1; sfxMenuBack(); dirty = true; }
+                else if (settingsFocus === 7) closeSettings();
             } else {
                 if (settingsFocus === 0) {
                     if (settingsConfirmDelete === 1) { settingsConfirmDelete = 2; sfxBlade(); dirty = true; }
                     else { deleteAllData(); }
-                } else { settingsConfirmDelete = 0; settingsFocus = 4; sfxBlade(); dirty = true; }
+                } else { settingsConfirmDelete = 0; settingsFocus = 6; sfxMenuBack(); dirty = true; }
             }
             return;
         }
@@ -4808,15 +5337,35 @@ function onKeyDown(e) {
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             if      (titleFocus === 0) enterTournament();
-            else if (titleFocus === 1) enterPracticeBout();
-            else if (titleFocus === 2) enterRoster();
-            else if (titleFocus === 3) openSettings();
+            else if (titleFocus === 1) enterQuickBout();
+            else if (titleFocus === 2) enterPracticeBout();
+            else if (titleFocus === 3) enterTwoPlayer();
+            else if (titleFocus === 4) enterRoster();
+            else if (titleFocus === 5) enterStats();
+            else if (titleFocus === 6) openSettings();
             return;
         }
-        // Letter shortcuts (still work)
-        if (e.key === 'p' || e.key === 'P') { enterPracticeBout(); return; }
+        // Letter shortcuts
+        if (e.key === 'p' || e.key === 'P') { enterQuickBout(); return; }
         if (e.key === 'r' || e.key === 'R') { enterRoster(); return; }
         if (e.key === 's' || e.key === 'S') { openSettings(); return; }
+        if (e.key === 'v' || e.key === 'V') { enterTwoPlayer(); return; }
+        if (e.key === 'k' || e.key === 'K') { enterStats(); return; }
+        if (e.key === 'w' || e.key === 'W') { cycleWeapon(1); return; }
+        return;
+    }
+    if (state === S_STATS) {
+        if (e.key === 'Escape' || e.key === 'Backspace') { sfxMenuBack(); state = S_TITLE; dirty = true; return; }
+        if (e.key === 'Tab' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            e.preventDefault(); statsFocus = 1 - statsFocus; dirty = true; return;
+        }
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (statsFocus === 0) { sfxMenuBack(); state = S_TITLE; }
+            else { stats = defaultStats(); saveStats(); sfxMenuConfirm(); }
+            dirty = true;
+            return;
+        }
         return;
     }
     if (state === S_ROSTER) {
@@ -4897,17 +5446,21 @@ function onKeyDown(e) {
         return;
     }
     if (state === S_BOUT_RESULT) {
+        var canRematch = (boutContext !== 'tournament');
+        if (canRematch && (e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+                           e.key === 'Tab')) {
+            e.preventDefault();
+            boutResultFocus = 1 - boutResultFocus;
+            dirty = true;
+            return;
+        }
+        if (e.key === 'r' || e.key === 'R') { if (canRematch) boutRematch(); return; }
         if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
-            if (boutContext === 'tournament' && tournament) {
-                if (tournament.playerEliminated) { state = S_GAME_OVER; sfxDefeat(); }
-                else if (tournament.champion && tournament.champion.code === tournament.playerCode) {
-                    state = S_CHAMPION; sfxVictory();
-                    spawnConfetti(tournament.champion.colors);
-                }
-                else { state = S_BRACKET; sfxBlade(); }
-                if (musicOn) { currentTrack = null; setTrack('menu'); }
-                dirty = true;
-            } else { exitBout(); }
+            if (canRematch && boutResultFocus === 0 && e.key !== 'Escape') {
+                boutRematch();
+                return;
+            }
+            advanceFromBoutResult();
         }
         return;
     }
@@ -4998,6 +5551,7 @@ function init() {
     canvas.addEventListener('mousedown', onPointerDown);
     canvas.addEventListener('touchstart', onPointerDown, { passive: false });
     canvas.addEventListener('touchmove', onPointerMove, { passive: false });
+    canvas.addEventListener('mousemove', onPointerMove);
     canvas.addEventListener('mouseup', onPointerUp);
     canvas.addEventListener('touchend', onPointerUp, { passive: false });
     canvas.addEventListener('touchcancel', onPointerUp, { passive: false });
@@ -5021,5 +5575,30 @@ function init() {
 }
 
 window._fenceInit = init;
+
+// Debug hook — exposes just enough state for automated playthrough tests.
+// Guarded so it never runs for players.
+if (DEBUG || (typeof window !== 'undefined' && window.location &&
+              /127\.0\.0\.1|localhost/.test(window.location.hostname))) {
+    window.__pfState = function () {
+        return {
+            state: state,
+            p1: bp1 ? bp1.touches : null,
+            p2: bp2 ? bp2.touches : null,
+            stam1: bp1 ? Math.round(bp1.stamina) : null,
+            weapon: weaponKey,
+            gap: (bp1 && bp2) ? +(bp2.pos - bp1.pos).toFixed(2) : null,
+            hitGap: +(BODY_R * 2 + weapon().reach + LUNGE_ADVANCE).toFixed(2),
+            act1: bp1 ? bp1.act : null,
+            act2: bp2 ? bp2.act : null,
+            attacker: boutAttacker,
+            riposte: bp1 ? bp1.riposteT > 0 : false,
+            pos1: bp1 ? +bp1.pos.toFixed(2) : null,
+            round: tournament ? tournament.roundIdx : null,
+            eliminated: tournament ? tournament.playerEliminated : null,
+            champion: tournament && tournament.champion ? tournament.champion.code : null
+        };
+    };
+}
 
 })();
