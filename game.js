@@ -1263,12 +1263,10 @@ var boutMsg = '';
 var boutMsgSub = '';      // secondary line under the main call
 var boutMsgT = 0;
 var boutHaltT = 0;        // time remaining in halt phase before reset
-var boutFlashT = 0;       // visual flash for parries / impacts
 var boutClock = BOUT_TIME_MS;
 var boutLastCall = '';    // 'touch1' | 'touch2' | 'double' | 'nopoint'
 var boutMatchPoint = false;
 var boutSuddenDeath = false;
-var boutClockExpired = false;
 var twoPlayer = false;
 var bp1Keys = { advance: false, retreat: false };
 var bp2Keys = { advance: false, retreat: false };
@@ -1573,7 +1571,6 @@ function startBout(f1, f2, opts) {
     BOUT_TARGET = opts.target || 5;
     boutClock = opts.time || BOUT_TIME_MS;
     boutSuddenDeath = false;
-    boutClockExpired = false;
     boutMatchPoint = false;
     boutLastCall = '';
     boutAttacker = 0;
@@ -2578,9 +2575,9 @@ function scoreTouch(scorer, msg, sub) {
     crowdReact(scorer ? scorer.side : 0);
     statsRecordTouch(scorer);
 
-    // Match point drama
-    var lead = Math.max(bp1.touches, bp2.touches);
-    if (lead === BOUT_TARGET - 1) {
+    // Match point drama — fire the sting once, on the touch that sets it up.
+    if (!boutMatchPoint && Math.max(bp1.touches, bp2.touches) >= BOUT_TARGET - 1 &&
+        !boutOver()) {
         boutMatchPoint = true;
         sfxMatchPoint();
     }
@@ -2735,8 +2732,7 @@ function updateBout(dt) {
                 boutMsgSub = 'NEXT TOUCH WINS';
                 boutMsgT = 1600;
                 sfxMatchPoint();
-                boutClockExpired = true;
-            } else {
+                } else {
                 BOUT_TARGET = Math.max(bp1.touches, bp2.touches);
                 finishBout();
                 return;
@@ -3483,8 +3479,8 @@ var SPRITE_ROWS = 20;        // drawFencer's logical grid height
 
 // How much of the strip is on screen. Portrait is narrow, so it holds a
 // tighter view to keep the fencers a readable size.
-function camMinViewM() { return isPortrait() ? 7.0 : 9.5; }
-function camMaxViewM() { return isPortrait() ? 11.0 : 14.0; }
+function camMinViewM() { return isPortrait() ? 5.6 : 9.5; }
+function camMaxViewM() { return isPortrait() ? 9.0 : 14.0; }
 
 function camAvailW() { return VIEW_W - 2 * (_pisteMargin + SAFE_X); }
 
@@ -3649,9 +3645,20 @@ function drawScoreRibbon() {
                   : (urgent && Math.floor(performance.now() / 400) % 2 === 0 ? '#ffaa44' : '#fff');
     ctx.fillText(fmtClock(boutClock), VIEW_W / 2, midY - 3);
     ctx.font = 'bold ' + (p ? 8 : 7) + 'px ' + FONT;
-    ctx.fillStyle = 'rgba(255,255,255,0.62)';
-    var sub = boutSuddenDeath ? 'SUDDEN DEATH'
-            : weapon().name + '  ·  FIRST TO ' + BOUT_TARGET;
+    var sub, subCol = 'rgba(255,255,255,0.62)';
+    if (boutSuddenDeath) {
+        sub = 'SUDDEN DEATH';
+        subCol = '#ff8888';
+    } else if (boutMatchPoint) {
+        // One touch from the end — say so, and make it pulse.
+        var lead = bp1.touches > bp2.touches ? bp1 : (bp2.touches > bp1.touches ? bp2 : null);
+        sub = lead ? (lead.side === 1 ? 'MATCH POINT — YOURS' : 'MATCH POINT — THEIRS')
+                   : 'MATCH POINT';
+        subCol = (Math.floor(performance.now() / 320) % 2 === 0) ? COLOR_GOLD : '#fff';
+    } else {
+        sub = weapon().name + '  ·  FIRST TO ' + BOUT_TARGET;
+    }
+    ctx.fillStyle = subCol;
     ctx.fillText(sub, VIEW_W / 2, midY + (p ? 11 : 9));
 
     // ── Scoring lights ──
@@ -3850,7 +3857,9 @@ function drawBoutMessage(yCenter) {
     var w = Math.min(maxW, Math.max(mainW, subW) + 26);
     var h = fontSize + (boutMsgSub ? subSize + 10 : 0) + 16;
     var bx = Math.round(VIEW_W / 2 - w / 2);
-    var by = Math.round(_playTop + 10);
+    var spriteH = Math.round(SPRITE_ROWS * 1.8 * boutSpriteSize());
+    var by = Math.max(_playTop + 6,
+                      Math.round(_pisteYCenter - spriteH - 46 - h));
 
     // Slide-and-fade in over the first 120ms
     var age = Math.min(1, (1 - Math.max(0, Math.min(1, boutMsgT / 1500))) * 12);
@@ -3883,8 +3892,6 @@ var _touchActive = false;
 var TOUCH_SWIPE_DIST = 34;
 var TOUCH_TAP_MS = 190;
 var TOUCH_HOLD_MS = 210;   // must exceed TOUCH_TAP_MS or tap and hold overlap
-
-function boutTouchControlsH() { return 0; }
 
 function drawBoutControlsHint(yBottom) {
     ctx.font = '7px ' + FONT;
@@ -3979,6 +3986,43 @@ function drawCrowd(yTop, height) {
     }
 }
 
+// Spectators on the near side of the piste, seen from behind and in shadow.
+function drawForegroundStand(top) {
+    var h = VIEW_H - top;
+    if (h <= 0) return;
+    ctx.fillStyle = '#0a1c36';
+    ctx.fillRect(0, top, VIEW_W, h);
+    // Barrier along the front of the strip
+    ctx.fillStyle = '#14304f';
+    ctx.fillRect(0, top - 4, VIEW_W, 4);
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.fillRect(0, top - 4, VIEW_W, 1);
+
+    // Rows get larger toward the camera.
+    var rows = Math.max(1, Math.floor(h / 26));
+    for (var r = 0; r < rows; r++) {
+        var scale = 1 + r * 0.35;
+        var ry = top + 8 + r * Math.round(h / rows);
+        var hw = Math.round(7 * scale);        // head width
+        var hh = Math.round(6 * scale);
+        var step = Math.round(20 * scale);
+        var offset = (r % 2) * Math.round(step / 2);
+        var shade = 0.55 - r * 0.12;
+        for (var x = -offset; x < VIEW_W + step; x += step) {
+            var seed = ((r + 3) * 41 + (x + 7) * 13) & 0xff;
+            if (seed % 9 === 0) continue;
+            var bob = (fxCrowdHype > 0.35 &&
+                       (seed + Math.floor(performance.now() / 150)) % 3 === 0) ? -2 : 0;
+            ctx.globalAlpha = Math.max(0.25, shade);
+            ctx.fillStyle = '#000913';
+            ctx.fillRect(x, ry + bob, hw, hh);                       // head
+            ctx.fillRect(x - Math.round(hw * 0.4), ry + hh + bob,
+                         Math.round(hw * 1.8), Math.round(hh * 1.4)); // shoulders
+            ctx.globalAlpha = 1;
+        }
+    }
+}
+
 // Overhead hall lighting, truss and banners — fills the space above the piste.
 function drawArena(top, bottom) {
     var h = bottom - top;
@@ -3996,11 +4040,17 @@ function drawArena(top, bottom) {
         ctx.fillRect(tx, top, 2, 7);
     }
 
-    // Hanging banners — the event, and the two nations in the bout
+    // Hanging banners — the two nations in the bout
     var bannerY = top + 12;
-    var bh = Math.min(38, Math.max(16, h * 0.34));
-    drawBanner(VIEW_W * 0.16, bannerY, 34, bh, bp1.fencer);
-    drawBanner(VIEW_W * 0.84 - 34, bannerY, 34, bh, bp2.fencer);
+    var bh = Math.min(38, Math.max(16, h * 0.22));
+    drawBanner(VIEW_W * 0.10, bannerY, 34, bh, bp1.fencer);
+    drawBanner(VIEW_W * 0.90 - 34, bannerY, 34, bh, bp2.fencer);
+
+    // Overhead scoreboard. Mostly this is what fills a tall portrait screen,
+    // but it earns its place by making the score readable from the action.
+    // Only on tall screens. In landscape the hall is short, and a board big
+    // enough to read would crowd out the action it sits above.
+    if (h > 240) drawJumbotron(top + 12 + Math.max(0, (h - 240) * 0.30), h);
     // Light pools falling on the strip
     var pools = 4;
     for (var i = 0; i < pools; i++) {
@@ -4022,6 +4072,64 @@ function drawArena(top, bottom) {
         ctx.fillStyle = 'rgba(255,238,176,0.35)';
         ctx.fillRect(Math.round(cx) - 13, top, 26, 5);
     }
+}
+
+// Big hanging scoreboard above the piste.
+function drawJumbotron(top, hallH) {
+    var w = Math.min(VIEW_W * 0.52, 230);
+    var h = Math.min(hallH * 0.42, 96);
+    if (h < 42) return;
+    var x = Math.round(VIEW_W / 2 - w / 2);
+    var y = Math.round(top + Math.min(24, hallH * 0.10));
+
+    // Rigging
+    ctx.fillStyle = '#0d2244';
+    ctx.fillRect(x + Math.round(w * 0.2), top - 6, 2, y - top + 6);
+    ctx.fillRect(x + Math.round(w * 0.8), top - 6, 2, y - top + 6);
+
+    // Case
+    ctx.fillStyle = '#050f1f';
+    ctx.fillRect(x - 3, y - 3, w + 6, h + 6);
+    ctx.fillStyle = '#0a1830';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = 'rgba(255,255,255,0.07)';
+    ctx.fillRect(x, y, w, 2);
+
+    var midY = Math.round(y + h * 0.46);
+    var big = Math.round(Math.min(h * 0.42, w * 0.16));
+    ctx.textBaseline = 'middle';
+
+    // Flags + codes
+    var fw = Math.round(w * 0.13), fh = Math.round(fw * 0.68);
+    drawFlag(x + 8, y + 7, fw, fh, bp1.fencer.code);
+    drawFlag(x + w - 8 - fw, y + 7, fw, fh, bp2.fencer.code);
+    ctx.font = 'bold ' + Math.max(6, Math.round(big * 0.34)) + 'px ' + FONT;
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.textAlign = 'left';
+    ctx.fillText(bp1.fencer.code, x + 10 + fw, y + 7 + fh / 2);
+    ctx.textAlign = 'right';
+    ctx.fillText(bp2.fencer.code, x + w - 10 - fw, y + 7 + fh / 2);
+
+    // Score
+    ctx.font = 'bold ' + big + 'px ' + FONT;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = bp1.scorePop > 0 ? '#fff' : COLOR_GOLD;
+    ctx.fillText(String(bp1.touches), x + Math.round(w * 0.28), midY);
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillText('-', x + Math.round(w * 0.5), midY);
+    ctx.fillStyle = bp2.scorePop > 0 ? '#fff' : COLOR_GOLD;
+    ctx.fillText(String(bp2.touches), x + Math.round(w * 0.72), midY);
+
+    // Clock strip
+    ctx.font = 'bold ' + Math.max(6, Math.round(big * 0.30)) + 'px ' + FONT;
+    ctx.fillStyle = boutSuddenDeath ? '#ff8888' : 'rgba(255,255,255,0.7)';
+    ctx.fillText(boutSuddenDeath ? 'SUDDEN DEATH' : fmtClock(boutClock),
+        x + w / 2, y + h - Math.max(8, h * 0.14));
+
+    // Lamps on the case
+    var lw = Math.round(w * 0.16), lh = Math.max(4, Math.round(h * 0.10));
+    drawLamp(x + 6, y + h - lh - 4, lw, lh, '#ff4444', fxLightL > 0);
+    drawLamp(x + w - 6 - lw, y + h - lh - 4, lw, lh, '#44ff77', fxLightR > 0);
 }
 
 // A hanging cloth banner in a nation's colours.
@@ -4135,7 +4243,10 @@ function drawBout() {
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
     var crowdTop = scoreboardH();
-    var crowdH = p ? 52 : 58;
+    // Portrait screens are very tall; a fixed-height stand left a huge empty
+    // band above the piste, so the arena scales with the space available.
+    var crowdH = p ? Math.round(Math.min(190, Math.max(60, VIEW_H * 0.15)))
+                   : 58;
     drawCrowd(crowdTop, crowdH);
 
     var playTop = crowdTop + crowdH;
@@ -4143,11 +4254,15 @@ function drawBout() {
     _playTop = playTop;
     // Sit the strip low in the play area so the fencers have headroom and the
     // hall fills the space above them.
-    var pisteY = Math.round(playTop + (playBottom - playTop) * 0.84);
+    var pisteY = Math.round(playTop + (playBottom - playTop) * (p ? 0.66 : 0.84));
     _pisteYCenter = pisteY;
 
     drawArena(playTop, pisteY - 12);
     drawPiste(pisteY);
+    // Near-side stand fills the foreground on tall screens and frames the
+    // strip the way a real venue does.
+    var fgTop = Math.max(pisteY + 34, VIEW_H - Math.round(VIEW_H * 0.22));
+    if (VIEW_H - fgTop > 46) drawForegroundStand(fgTop);
 
     // Referee stands off the strip on the near side, in front of the action.
     drawReferee(VIEW_W * 0.16, pisteY + 20, p ? 2.0 : 1.9);
@@ -4205,7 +4320,6 @@ function drawBoutResultOverlay(p) {
     var btnH = p ? 42 : 32;
     var gap = 8;
     var canRematch = (boutContext !== 'tournament');
-    var totalH = canRematch ? btnH * 2 + gap : btnH;
     var by = Math.round(VIEW_H / 2 + 26);
     if (canRematch) {
         drawButton(VIEW_W / 2 - btnW / 2, by, btnW, btnH, 'Rematch', boutResultFocus === 0);
@@ -4360,7 +4474,6 @@ function enterTwoPlayer() {
     ensureAudioStarted();
     sfxMenuConfirm();
     boutContext = 'versus';
-    twoPlayerPending = true;
     fsHighlightCode = loadFavorite() || (FENCERS[0] && FENCERS[0].code) || '';
     fsFocusIdx = 0;
     for (var i = 0; i < FENCERS.length; i++) {
@@ -4402,7 +4515,6 @@ var _fsCells = [];
 var _fsConfirmBtn = { x:0, y:0, w:0, h:0 };
 var _fsBackBtn = { x:0, y:0, w:0, h:0 };
 var _fsWeaponBtns = [];
-var twoPlayerPending = false;
 var fs2pStage = 0;      // 0 = single player, 1 = P1 picking, 2 = P2 picking
 var fs2pFirst = null;
 
@@ -4937,7 +5049,7 @@ function finishTournamentMatch() {
     var pIdx = findPlayerMatch(tournament);
     if (pIdx < 0) return;
     var match = tournament.rounds[tournament.roundIdx][pIdx];
-    var playerWon, playerScore, oppScore;
+    var playerWon;
     if (match.a.code === tournament.playerCode) {
         match.scoreA = bp1.touches; match.scoreB = bp2.touches;
         playerWon = bp1.touches > bp2.touches;
