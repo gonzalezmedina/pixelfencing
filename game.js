@@ -1357,7 +1357,7 @@ function newAI() {
         k = { reactFrac: 1.05, parryChance: 0.30, lungeRatePerSec: 0.85, feintChance: 0.05, riposteChance: 0.35, mistake: 0.30 };
     } else if (difficulty === 2) {
         // HARD — reads the attack early, blocks and ripostes, presses distance
-        k = { reactFrac: 0.42, parryChance: 0.80, lungeRatePerSec: 2.0, feintChance: 0.32, riposteChance: 0.92, mistake: 0.04 };
+        k = { reactFrac: 0.40, parryChance: 0.84, lungeRatePerSec: 2.1, feintChance: 0.34, riposteChance: 0.95, mistake: 0.04 };
     } else {
         k = { reactFrac: 0.68, parryChance: 0.58, lungeRatePerSec: 1.4, feintChance: 0.18, riposteChance: 0.70, mistake: 0.14 };
     }
@@ -1391,6 +1391,12 @@ function newAI() {
         actionCooldown: 0,
         idleHoldTimer: 0,
         commitTimer: 0,       // counts down to a deliberate attack
+        pendingFeint: 0,
+        pressing: 0,
+        // Running read of the player's habits. A fencer who blocks everything
+        // should start seeing feints; one who never blocks shouldn't.
+        readParry: 0.3,       // 0..1 — how often they answer an attack with a block
+        readWhiff: 0.2,       // 0..1 — how often they attack from out of measure
         lastDist: 99
     };
 }
@@ -1485,6 +1491,36 @@ function updateAI(dt) {
     if (dist < ai.idealMin) { aiSetMove('retreat'); return; }
     if (dist > ai.idealMax) { aiSetMove('advance'); return; }
 
+    // Deliberate attacking cycle. Sitting forever at the edge of measure is
+    // technically sound and desperately boring, so every so often the fencer
+    // commits: steps in and looks for the touch.
+    if (ai.commitTimer <= 0) {
+        ai.commitTimer = (900 + Math.random() * 1500) * ai.patience;
+        ai.pressing = 420 + Math.random() * 380;
+    }
+    if (ai.pressing > 0) {
+        ai.pressing -= dt;
+        aiSetMove('advance');
+        if (ai.actionCooldown <= 0 && f.stamina > STAM_COST.lunge &&
+            (!w.priority || boutAttacker !== opp.side)) {
+            var pressGap = Math.abs(dist);
+            var pressProb = (pressGap <= BODY_R * 2 + w.reach + LUNGE_ADVANCE)
+                ? ai.lungeRatePerSec * 2.6 * dt / 1000 : 0;
+            if (Math.random() < pressProb) {
+                startLunge(f, opp);
+                ai.actionCooldown = 620;
+                ai.pressing = 0;
+                var pf = Math.min(0.9, ai.feintChance + ai.readParry * 0.55);
+                if (Math.random() < pf) {
+                    if (Math.random() < ai.readParry) startLunge(f, opp);
+                    else ai.pendingFeint = 40 + Math.random() * 80;
+                }
+                return;
+            }
+        }
+        return;
+    }
+
     // In measure — hold with jitter so the footwork doesn't look robotic.
     if (ai.idleHoldTimer > 0) {
         aiSetMove('hold');
@@ -1504,8 +1540,9 @@ function updateAI(dt) {
     if (!canAttack) return;
 
     var lungeProb = ai.lungeRatePerSec * dt / 1000;
-    // Punish a whiffed attack — the recovery window is the free hit.
-    if (opp.act === 'lunge_recover') lungeProb *= 4.5;
+    // Punish a whiffed attack — the recovery window is the free hit, and the
+    // more the player whiffs, the more the AI waits for it.
+    if (opp.act === 'lunge_recover') lungeProb *= 4.5 + ai.readWhiff * 5;
     // Only commit from a distance that can actually land.
     var inMeasure = Math.abs(dist) <= (BODY_R * 2 + w.reach + LUNGE_ADVANCE);
     if (!inMeasure) lungeProb *= 0.12;
@@ -1514,7 +1551,16 @@ function updateAI(dt) {
         startLunge(f, opp);
         ai.actionCooldown = 620;
         // Feint: follow up inside the window to go around an expected block.
-        ai.pendingFeint = (Math.random() < ai.feintChance) ? (40 + Math.random() * 80) : 0;
+        // Feint more against a player who blocks a lot.
+        var feintOdds = Math.min(0.9, ai.feintChance + ai.readParry * 0.55);
+        if (Math.random() < feintOdds) {
+            // Against a quick blocker, commit to the deception immediately —
+            // a feint that starts a beat late just gets parried on the way in.
+            if (Math.random() < ai.readParry) startLunge(f, opp);
+            else ai.pendingFeint = 40 + Math.random() * 80;
+        } else {
+            ai.pendingFeint = 0;
+        }
     }
 }
 
@@ -1739,7 +1785,7 @@ function drawTutorial() {
     ctx.fillStyle = 'rgba(0,0,0,0.78)';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     var dlgW = p ? VIEW_W - 30 : 440;
-    var dlgH = Math.min(VIEW_H - 16, p ? VIEW_H - 80 : 356);
+    var dlgH = Math.min(VIEW_H - 16, p ? VIEW_H - 120 : 312);
     var dlgX = Math.round((VIEW_W - dlgW) / 2);
     var dlgY = Math.round((VIEW_H - dlgH) / 2);
     drawPixelRoundRect(dlgX, dlgY, dlgW, dlgH, 4, COLOR_GOLD);
@@ -2357,6 +2403,12 @@ function startLunge(f, opp) {
     }
     if (!canAct(f, STAM_COST.lunge)) return;
     if (f.stamina <= 2) { sfxExhausted(); f.gasp = 420; return; }
+    if (f.side === 1 && ai) {
+        // Attacking from beyond measure is a habit worth punishing.
+        var gapNow = Math.abs(f.pos - opp.pos);
+        var over = gapNow > (BODY_R * 2 + w.reach + LUNGE_ADVANCE);
+        ai.readWhiff = ai.readWhiff * 0.85 + (over ? 0.15 : 0);
+    }
 
     spend(f, STAM_COST.lunge);
     f.act = 'lunge_extend';
@@ -2373,6 +2425,12 @@ function startLunge(f, opp) {
 function startParry(f, opp) {
     var w = weapon();
     if (!canAct(f, STAM_COST.parry)) return;
+    // The AI watches whether the player answers attacks with the blade.
+    if (f.side === 1 && ai) {
+        var underAttack = (opp.act === 'lunge_extend' || opp.act === 'lunge_peak' ||
+                           opp.act === 'riposte');
+        if (underAttack) ai.readParry = ai.readParry * 0.82 + 0.18;
+    }
     spend(f, STAM_COST.parry);
     f.act = 'parry';
     f.actT = actDur(f, w.tParry);
@@ -2458,6 +2516,9 @@ function reachOf(f) {
 }
 
 function tryHit(attacker, defender) {
+    // Both fencers are updated in the same frame, so a touch resolved by the
+    // first must stop the second from also scoring.
+    if (state !== S_BOUT_PLAY) return;
     // Called when the attacker's point arrives. Decide if a touch lands.
     var w = weapon();
     var dir = attacker.side === 1 ? 1 : -1;
@@ -2488,9 +2549,10 @@ function tryHit(attacker, defender) {
 
     // Épée: no right of way. Both points landing inside the window score.
     if (w.doubleTouch) {
-        var theyAlsoLanded = (defender.act === 'lunge_extend' &&
-            (actDur(defender, w.tExtend) - defender.actT) < SIMUL_WINDOW) ||
-            defender.act === 'lunge_peak';
+        var theyAlsoLanded = defenderCanReach(defender, attacker) &&
+            ((defender.act === 'lunge_extend' &&
+              (actDur(defender, w.tExtend) - defender.actT) < SIMUL_WINDOW) ||
+             defender.act === 'lunge_peak' || defender.act === 'riposte');
         if (theyAlsoLanded) {
             scoreTouch(null, 'DOUBLE TOUCH', 'BOTH LIGHTS — ONE EACH');
             return;
@@ -2587,6 +2649,7 @@ function scoreTouch(scorer, msg, sub) {
 
 function updateFencer(f, opp, dt) {
     var w = weapon();
+    if (state !== S_BOUT_PLAY) return;
     if (f.flash > 0) f.flash = Math.max(0, f.flash - dt);
     if (f.gasp > 0) f.gasp = Math.max(0, f.gasp - dt);
     if (f.riposteT > 0) f.riposteT = Math.max(0, f.riposteT - dt);
@@ -2625,6 +2688,9 @@ function updateFencer(f, opp, dt) {
         return;
     }
     if (f.act === 'lunge_recover') {
+        // An AI attack that ran its course unblocked means the player is not
+        // a blocker; ease the feint pressure back off.
+        if (f.side === 2 && ai && !f.wasRiposte) ai.readParry *= 0.9;
         f.act = 'idle';
         f.feint = false;
         f.wasRiposte = false;
