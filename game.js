@@ -3977,18 +3977,20 @@ function drawBoutControlsHint(yBottom) {
     ctx.font = '7px ' + FONT;
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    // Leave room for the quit control in the bottom-right corner.
+    var cx = (VIEW_W - (isPortrait() ? 40 : 34)) / 2;
     if (_isTouchDevice) {
         ctx.fillText('HOLD = MOVE   TAP = ATTACK   SWIPE DOWN = BLOCK   TAP TWICE = FEINT',
-            VIEW_W / 2, yBottom);
+            cx, yBottom);
         return;
     }
     if (twoPlayer) {
-        ctx.fillText('P1  A D  MOVE   W ATTACK   S BLOCK          P2  ← →  MOVE   ↑ ATTACK   ↓ BLOCK',
-            VIEW_W / 2, yBottom);
+        ctx.fillText('P1  A D  W  S          P2  ← →  ↑  ↓          MOVE / ATTACK / BLOCK',
+            cx, yBottom);
         return;
     }
     ctx.fillText('← → MOVE    ↑ ATTACK (TWICE = FEINT)    ↓ BLOCK    ESC QUIT',
-        VIEW_W / 2, yBottom);
+        cx, yBottom);
 }
 
 // ── Crowd ──
@@ -5048,6 +5050,15 @@ function confirmFencerSelect() {
             fs2pFirst = fencerByCode(fsHighlightCode);
             saveFavorite(fsHighlightCode);
             fs2pStage = 2;
+            // Move the highlight off P1's choice so P2 isn't staring at a
+            // mirror match by default.
+            for (var pi = 0; pi < FENCERS.length; pi++) {
+                if (FENCERS[pi].code !== fsHighlightCode) {
+                    fsHighlightCode = FENCERS[pi].code;
+                    fsFocusIdx = pi;
+                    break;
+                }
+            }
             dirty = true;
             return;
         }
