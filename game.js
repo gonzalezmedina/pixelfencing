@@ -1010,13 +1010,12 @@ function canvasCoords(e) {
 
 function isPortrait() { return VIEW_H > VIEW_W; }
 
-// ── Focus / keyboard navigation (Phase 6.5) ──
+// ── Focus / keyboard navigation ──
 //
-// Each navigable screen tracks its own focus index. After drawing the screen,
-// it sets `_focusedRect` to the rect of the focused button/cell, and the main
-// draw() pass calls drawFocusBorder() to overlay a pulsing gold border.
+// Each navigable screen tracks its own focus index, and draws the focused
+// control with drawButton's `primary` styling (a gold border). There is no
+// separate overlay.
 //
-var _focusedRect = null;
 var titleFocus = 0;        // 0=Tourney 1=Quick 2=Choose 3=2P 4=Roster 5=Records 6=Settings
 var TITLE_FOCUS_COUNT = 7;
 var fsFocusIdx = 0;        // 0..15 = grid cell, 16=Back, 17=Start
@@ -1026,9 +1025,6 @@ var settingsFocus = 0;     // 0=Sound 1=Music 2=Effects 3=Weapon 4=Difficulty
 var SETTINGS_FOCUS_COUNT = 8;
 var bracketFocus = 1;      // 0=Quit 1=Continue (Continue is the natural default)
 
-// Focus is rendered as the button's own gold border (via the `primary`
-// parameter to drawButton) — no separate outline. Match Pixel Rugby.
-function drawFocusBorder() { /* no-op — focus is in-button */ }
 
 // ── States ──
 var S_TITLE = 0;
@@ -1354,12 +1350,12 @@ function newAI() {
     var k;
     if (difficulty === 0) {
         // EASY — usually too slow to catch the attack, holds a safe distance
-        k = { reactFrac: 1.05, parryChance: 0.30, lungeRatePerSec: 0.85, feintChance: 0.05, riposteChance: 0.35, mistake: 0.30 };
+        k = { reactFrac: 1.05, parryChance: 0.30, lungeRatePerSec: 0.85, feintChance: 0.05, riposteChance: 0.35, mistake: 0.30, pressGap: [2200, 4200], pressBoost: 1.3 };
     } else if (difficulty === 2) {
         // HARD — reads the attack early, blocks and ripostes, presses distance
-        k = { reactFrac: 0.40, parryChance: 0.84, lungeRatePerSec: 2.1, feintChance: 0.34, riposteChance: 0.95, mistake: 0.04 };
+        k = { reactFrac: 0.40, parryChance: 0.84, lungeRatePerSec: 2.1, feintChance: 0.34, riposteChance: 0.95, mistake: 0.04, pressGap: [800, 2100], pressBoost: 2.8 };
     } else {
-        k = { reactFrac: 0.68, parryChance: 0.58, lungeRatePerSec: 1.4, feintChance: 0.18, riposteChance: 0.70, mistake: 0.14 };
+        k = { reactFrac: 0.66, parryChance: 0.50, lungeRatePerSec: 1.3, feintChance: 0.11, riposteChance: 0.68, mistake: 0.16, pressGap: [1500, 3200], pressBoost: 1.8 };
     }
     k.reactionMs = Math.round(w0.tExtend * k.reactFrac);
 
@@ -1387,6 +1383,8 @@ function newAI() {
         engageDist: hitGap * 1.65 + st.dist,
         patience: st.patience,
         moveJitterMs: [90, 240],
+        pressGap: k.pressGap,
+        pressBoost: k.pressBoost,
         perceivedAttackTimer: -1,
         actionCooldown: 0,
         idleHoldTimer: 0,
@@ -1495,8 +1493,9 @@ function updateAI(dt) {
     // technically sound and desperately boring, so every so often the fencer
     // commits: steps in and looks for the touch.
     if (ai.commitTimer <= 0) {
-        ai.commitTimer = (900 + Math.random() * 1500) * ai.patience;
-        ai.pressing = 420 + Math.random() * 380;
+        var pg = ai.pressGap;
+        ai.commitTimer = (pg[0] + Math.random() * (pg[1] - pg[0])) * ai.patience;
+        ai.pressing = 380 + Math.random() * 340;
     }
     if (ai.pressing > 0) {
         ai.pressing -= dt;
@@ -1505,14 +1504,14 @@ function updateAI(dt) {
             (!w.priority || boutAttacker !== opp.side)) {
             var pressGap = Math.abs(dist);
             var pressProb = (pressGap <= BODY_R * 2 + w.reach + LUNGE_ADVANCE)
-                ? ai.lungeRatePerSec * 2.6 * dt / 1000 : 0;
+                ? ai.lungeRatePerSec * ai.pressBoost * dt / 1000 : 0;
             if (Math.random() < pressProb) {
                 startLunge(f, opp);
                 ai.actionCooldown = 620;
                 ai.pressing = 0;
-                var pf = Math.min(0.9, ai.feintChance + ai.readParry * 0.55);
+                var pf = Math.min(0.62, ai.feintChance + ai.readParry * 0.30);
                 if (Math.random() < pf) {
-                    if (Math.random() < ai.readParry) startLunge(f, opp);
+                    if (Math.random() < ai.readParry * 0.5) startLunge(f, opp);
                     else ai.pendingFeint = 40 + Math.random() * 80;
                 }
                 return;
@@ -1552,11 +1551,12 @@ function updateAI(dt) {
         ai.actionCooldown = 620;
         // Feint: follow up inside the window to go around an expected block.
         // Feint more against a player who blocks a lot.
-        var feintOdds = Math.min(0.9, ai.feintChance + ai.readParry * 0.55);
+        var feintOdds = Math.min(0.62, ai.feintChance + ai.readParry * 0.30);
         if (Math.random() < feintOdds) {
-            // Against a quick blocker, commit to the deception immediately —
-            // a feint that starts a beat late just gets parried on the way in.
-            if (Math.random() < ai.readParry) startLunge(f, opp);
+            // Against a quick blocker, sometimes commit to the deception
+            // immediately — a feint that starts a beat late is simply parried
+            // on the way in. Not always, or blocking would have no answer.
+            if (Math.random() < ai.readParry * 0.5) startLunge(f, opp);
             else ai.pendingFeint = 40 + Math.random() * 80;
         } else {
             ai.pendingFeint = 0;
@@ -2378,7 +2378,7 @@ function startLunge(f, opp) {
     if (f.act === 'lunge_extend' && !f.feint && f.actElapsed <= FEINT_WINDOW &&
         f.stamina >= STAM_COST.feint * 0.5) {
         f.feint = true;
-        f.actT += 110;                       // the disengage costs a beat
+        f.actT += 165;                       // the disengage costs a real beat
         spend(f, STAM_COST.feint - STAM_COST.lunge);
         fxSpark(bladeTipX(f), bladeTipY(f), 5, '#ffe9a0');
         sfxFeint();
@@ -2429,7 +2429,7 @@ function startParry(f, opp) {
     if (f.side === 1 && ai) {
         var underAttack = (opp.act === 'lunge_extend' || opp.act === 'lunge_peak' ||
                            opp.act === 'riposte');
-        if (underAttack) ai.readParry = ai.readParry * 0.82 + 0.18;
+        if (underAttack) ai.readParry = Math.min(0.6, ai.readParry * 0.86 + 0.14);
     }
     spend(f, STAM_COST.parry);
     f.act = 'parry';
@@ -2863,18 +2863,32 @@ function stepTick(f, dt) {
 var BAR_H = 24;
 var BAR_FONT = 12;
 
+// Chunky pixel-art rounded rectangle: a stack of horizontal runs that step in
+// at the corners. The previous version's third fill covered everything except
+// the four literal corner pixels, so `r` had no visible effect at any value
+// and nothing in the game was actually round.
 function drawPixelRoundRect(x, y, w, h, r, color) {
+    x = Math.round(x); y = Math.round(y);
+    w = Math.round(w); h = Math.round(h);
+    r = Math.max(0, Math.min(Math.round(r), Math.floor(Math.min(w, h) / 2)));
     ctx.fillStyle = color;
-    ctx.fillRect(x + r, y, w - r * 2, h);
+    if (r <= 0) { ctx.fillRect(x, y, w, h); return; }
+    // Straight middle section
     ctx.fillRect(x, y + r, w, h - r * 2);
-    ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
+    // Stepped caps, top and bottom mirrored
+    for (var i = 0; i < r; i++) {
+        // How far this row steps in — a quarter-circle, quantised to pixels.
+        var inset = r - Math.round(Math.sqrt(r * r - (r - i - 1) * (r - i - 1)));
+        ctx.fillRect(x + inset, y + i, w - inset * 2, 1);
+        ctx.fillRect(x + inset, y + h - 1 - i, w - inset * 2, 1);
+    }
 }
 
 function drawButton(x, y, w, h, label, primary, bgColor) {
     var r = h >= 40 ? 5 : 3;
     var bg = bgColor || COLOR_UI_BG;
     var b = h >= 40 ? 3 : 2;
-    drawPixelRoundRect(x + b, y + b, w, h, r, 'rgba(0,0,0,0.4)');
+    drawPixelRoundRect(x + b, y + b, w, h, r, 'rgba(0,0,0,0.35)');
     drawPixelRoundRect(x, y, w, h, r, primary ? COLOR_GOLD : COLOR_WHITE);
     drawPixelRoundRect(x + b, y + b, w - b * 2, h - b * 2, r, bg);
     ctx.fillStyle = '#fff';
@@ -4949,7 +4963,6 @@ function draw() {
     var shake = fxShakeOffset();
     if (shake) ctx.translate(shake.x, shake.y);
 
-    _focusedRect = null;
     if (state === S_TITLE) drawTitle();
     else if (state === S_ROSTER) drawRoster();
     else if (state === S_FENCER_SELECT) drawFencerSelect();
@@ -4962,7 +4975,6 @@ function draw() {
              state === S_BOUT_HALT || state === S_BOUT_RESULT) drawBout();
     if (tutorialVisible) drawTutorial();
     if (settingsVisible) drawSettings();
-    drawFocusBorder();
     ctx.restore();
 }
 
@@ -5770,6 +5782,7 @@ if (DEBUG || (typeof window !== 'undefined' && window.location &&
             act1: bp1 ? bp1.act : null,
             act2: bp2 ? bp2.act : null,
             attacker: boutAttacker,
+            lastCall: boutLastCall,
             riposte: bp1 ? bp1.riposteT > 0 : false,
             pos1: bp1 ? +bp1.pos.toFixed(2) : null,
             round: tournament ? tournament.roundIdx : null,
