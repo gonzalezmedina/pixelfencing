@@ -93,9 +93,9 @@ function drawFlag(fx, fy, fw, fh, code) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 var audioCtx = null;
-var soundOn = false;
+var soundOn = true;
 var sfxOn = true;
-var musicOn = false;
+var musicOn = true;
 var SOUND_KEY = (typeof _KP !== 'undefined' ? _KP : 'pf_') + 'soundSettings';
 
 // Buses: master ← (musicGain, sfxGain)
@@ -1016,13 +1016,13 @@ function isPortrait() { return VIEW_H > VIEW_W; }
 // control with drawButton's `primary` styling (a gold border). There is no
 // separate overlay.
 //
-var titleFocus = 0;        // 0=Tourney 1=Quick 2=Choose 3=2P 4=Roster 5=Records 6=Settings
+var titleFocus = 0;        // 0=Play 1=How 2=Tourney 3=2P 4=MyFencer 5=Records 6=Settings
 var TITLE_FOCUS_COUNT = 7;
 var fsFocusIdx = 0;        // 0..15 = grid cell, 16=Back, 17=Start
 var rosterFocusIdx = 0;    // 0..15 = grid cell, 16=Back
 var settingsFocus = 0;     // 0=Sound 1=Music 2=Effects 3=Weapon 4=Difficulty
                            // 5=Tutorial 6=Delete 7=Close
-var SETTINGS_FOCUS_COUNT = 8;
+var SETTINGS_FOCUS_COUNT = 9;
 var bracketFocus = 1;      // 0=Quit 1=Continue (Continue is the natural default)
 
 
@@ -1047,20 +1047,39 @@ var rosterFlipped = {}; // code -> true means show lunge instead of en-garde
 // 0=Easy, 1=Normal, 2=Hard. Stored as a single int in localStorage.
 //
 var DIFFICULTY_KEY = _KP + 'difficulty';
-var difficulty = 1;
-var _diffNames = ['EASY', 'NORMAL', 'HARD'];
+var D_BEGINNER = 0, D_EASY = 1, D_NORMAL = 2, D_HARD = 3;
+var DIFF_COUNT = 4;
+// Starts on BEGINNER. Normal was the old default, and it is tuned to beat a
+// player who already knows the game — a terrible first experience.
+var difficulty = D_BEGINNER;
+var _diffNames = ['BEGINNER', 'EASY', 'NORMAL', 'HARD'];
 function loadDifficulty() {
-    try { var v = parseInt(localStorage.getItem(DIFFICULTY_KEY), 10); if (v >= 0 && v <= 2) difficulty = v; } catch(e) {}
+    try { var v = parseInt(localStorage.getItem(DIFFICULTY_KEY), 10); if (v >= 0 && v < DIFF_COUNT) difficulty = v; } catch(e) {}
 }
 function saveDifficulty() {
     try { localStorage.setItem(DIFFICULTY_KEY, String(difficulty)); } catch(e) {}
 }
 function cycleDifficulty() {
-    difficulty = (difficulty + 1) % 3;
+    difficulty = (difficulty + 1) % DIFF_COUNT;
     saveDifficulty();
     sfxBlade();
     dirty = true;
 }
+
+// ── Assist ──
+//
+// On by default. Beginners bounce off a bout they are losing 0-3, so the
+// opponent quietly eases off when it is well ahead.
+var ASSIST_KEY = _KP + 'assist';
+var assistOn = true;
+function loadAssist() {
+    try {
+        var v = localStorage.getItem(ASSIST_KEY);
+        if (v !== null) assistOn = (v === '1');
+    } catch (e) {}
+}
+function saveAssist() { try { localStorage.setItem(ASSIST_KEY, assistOn ? '1' : '0'); } catch (e) {} }
+function toggleAssist() { assistOn = !assistOn; saveAssist(); sfxMenuConfirm(); dirty = true; }
 
 // ── Career stats ──
 //
@@ -1180,9 +1199,10 @@ var SIMUL_WINDOW = 110;   // ms — both attacks within this = simultaneous
 //
 var WEAPONS = {
     foil: {
-        key: 'foil', name: 'FOIL',
-        blurb: 'RIGHT OF WAY · TORSO TARGET',
-        desc: 'The classic. Whoever attacks first owns the point — block to steal it back.',
+        key: 'foil', name: 'CLASSIC',
+        realName: 'FOIL',
+        blurb: 'START HERE \u2014 WHOEVER ATTACKS FIRST OWNS THE POINT',
+        desc: 'The standard sword. Attack first, or block and hit straight back.',
         reach: 1.75,
         priority: true,
         doubleTouch: false,
@@ -1193,9 +1213,10 @@ var WEAPONS = {
         staminaMul: 1.0
     },
     epee: {
-        key: 'epee', name: 'EPEE',
-        blurb: 'NO RIGHT OF WAY · WHOLE BODY',
-        desc: 'No priority rules. Hit first, or hit together and you BOTH score. Longest reach.',
+        key: 'epee', name: 'SIMPLE',
+        realName: 'EPEE',
+        blurb: 'NO RULES ABOUT WHO WENT FIRST \u2014 JUST HIT THEM',
+        desc: 'Longest reach. Whoever lands, scores. Land together and you both score.',
         reach: 2.15,
         priority: false,
         doubleTouch: true,
@@ -1206,9 +1227,10 @@ var WEAPONS = {
         staminaMul: 1.1
     },
     sabre: {
-        key: 'sabre', name: 'SABRE',
-        blurb: 'RIGHT OF WAY · CUTS · FASTEST',
-        desc: 'Cut and thrust at speed. Short reach, brutal tempo, blink and the point is gone.',
+        key: 'sabre', name: 'FAST',
+        realName: 'SABRE',
+        blurb: 'SAME RULES AS CLASSIC, BUT MUCH QUICKER',
+        desc: 'Everything happens twice as fast, and you have to get closer.',
         reach: 1.45,
         priority: true,
         doubleTouch: false,
@@ -1313,15 +1335,15 @@ function lungeTravel(f) {
 //
 var AI_STYLES = {
     // Comes forward relentlessly, attacks often, blocks rarely.
-    pressure:   { label: 'PRESSURE',  aggr: 1.35, parry: 0.78, dist: -0.35, feint: 0.9,  patience: 0.55, riposte: 0.8 },
+    pressure:   { label: 'AGGRESSIVE',  aggr: 1.35, parry: 0.78, dist: -0.35, feint: 0.9,  patience: 0.55, riposte: 0.8 },
     // Sits at long range, waits for you to commit, then blocks and ripostes.
-    counter:    { label: 'COUNTER',   aggr: 0.62, parry: 1.42, dist: 0.45,  feint: 0.7,  patience: 1.5,  riposte: 1.35 },
+    counter:    { label: 'DEFENSIVE',   aggr: 0.62, parry: 1.42, dist: 0.45,  feint: 0.7,  patience: 1.5,  riposte: 1.35 },
     // Textbook — no strong preference, punishes mistakes.
-    classical:  { label: 'CLASSICAL', aggr: 1.0,  parry: 1.1,  dist: 0.0,   feint: 1.0,  patience: 1.0,  riposte: 1.1 },
+    classical:  { label: 'BALANCED', aggr: 1.0,  parry: 1.1,  dist: 0.0,   feint: 1.0,  patience: 1.0,  riposte: 1.1 },
     // Unpredictable tempo, heavy feint usage, hard to read.
-    deceptive:  { label: 'DECEPTIVE', aggr: 1.05, parry: 0.95, dist: 0.1,   feint: 1.9,  patience: 0.8,  riposte: 1.0 },
+    deceptive:  { label: 'TRICKY', aggr: 1.05, parry: 0.95, dist: 0.1,   feint: 1.9,  patience: 0.8,  riposte: 1.0 },
     // Explosive: long stillness then a sudden fast attack from distance.
-    explosive:  { label: 'EXPLOSIVE', aggr: 1.15, parry: 0.7,  dist: 0.3,   feint: 0.6,  patience: 1.7,  riposte: 0.75 }
+    explosive:  { label: 'SUDDEN', aggr: 1.15, parry: 0.7,  dist: 0.3,   feint: 0.6,  patience: 1.7,  riposte: 0.75 }
 };
 var AI_STYLE_ORDER = ['pressure', 'counter', 'classical', 'deceptive', 'explosive'];
 
@@ -1348,10 +1370,13 @@ function newAI() {
     // on Normal it could essentially never parry.
     var w0 = weapon();
     var k;
-    if (difficulty === 0) {
-        // EASY — usually too slow to catch the attack, holds a safe distance
-        k = { reactFrac: 1.05, parryChance: 0.30, lungeRatePerSec: 0.85, feintChance: 0.05, riposteChance: 0.35, mistake: 0.30, pressGap: [2200, 4200], pressBoost: 1.3 };
-    } else if (difficulty === 2) {
+    if (difficulty === D_BEGINNER) {
+        // BEGINNER — the sparring partner. Almost never blocks in time, attacks
+        // slowly and from far out, and never fakes. You should win this.
+        k = { reactFrac: 2.2, parryChance: 0.06, lungeRatePerSec: 0.42, feintChance: 0, riposteChance: 0.12, mistake: 0.5, pressGap: [3400, 6000], pressBoost: 0.9 };
+    } else if (difficulty === D_EASY) {
+        k = { reactFrac: 1.30, parryChance: 0.20, lungeRatePerSec: 0.72, feintChance: 0.02, riposteChance: 0.28, mistake: 0.34, pressGap: [2600, 4600], pressBoost: 1.15 };
+    } else if (difficulty === D_HARD) {
         // HARD — reads the attack early, blocks and ripostes, presses distance
         k = { reactFrac: 0.40, parryChance: 0.84, lungeRatePerSec: 2.1, feintChance: 0.34, riposteChance: 0.95, mistake: 0.04, pressGap: [800, 2100], pressBoost: 2.8 };
     } else {
@@ -1407,10 +1432,21 @@ function aiSetMove(dir) {
     bp2Keys.retreat = (dir === 'retreat');
 }
 
+// How much to hold the AI back right now. Falling behind early is the point
+// at which a new player gives up, so the opponent eases off when it is well
+// ahead and returns to full strength once the score is close again.
+function assistFactor() {
+    if (!assistOn || !bp1 || !bp2) return 1;
+    var behind = bp2.touches - bp1.touches;
+    if (behind <= 1) return 1;
+    return Math.max(0.35, 1 - (behind - 1) * 0.22);   // 2 behind → 0.78 … 4 → 0.34
+}
+
 function updateAI(dt) {
     if (!ai || twoPlayer) return;
     var f = bp2, opp = bp1;
     var w = weapon();
+    var assist = assistFactor();
 
     if (ai.actionCooldown > 0) ai.actionCooldown -= dt;
     if (ai.idleHoldTimer > 0) ai.idleHoldTimer -= dt;
@@ -1435,7 +1471,7 @@ function updateAI(dt) {
 
     // Riposte window is open — take it, at a rate set by skill and style.
     if (f.riposteT > 0) {
-        if (Math.random() < ai.riposteChance * (dt / 120)) {
+        if (Math.random() < ai.riposteChance * assist * (dt / 120)) {
             startLunge(f, opp);
             ai.actionCooldown = 300;
             return;
@@ -1455,9 +1491,9 @@ function updateAI(dt) {
         ai.perceivedAttackTimer = -1;
     }
 
-    if (oppAttacking && ai.perceivedAttackTimer >= ai.reactionMs && ai.actionCooldown <= 0) {
+    if (oppAttacking && ai.perceivedAttackTimer >= ai.reactionMs / assist && ai.actionCooldown <= 0) {
         var threatened = Math.abs(dist) <= (BODY_R * 2 + w.reach + LUNGE_ADVANCE + 0.35);
-        if (threatened && Math.random() < ai.parryChance && f.stamina > STAM_COST.parry) {
+        if (threatened && Math.random() < ai.parryChance * assist && f.stamina > STAM_COST.parry) {
             startParry(f, opp);
             ai.actionCooldown = 320;
             return;
@@ -1504,7 +1540,7 @@ function updateAI(dt) {
             (!w.priority || boutAttacker !== opp.side)) {
             var pressGap = Math.abs(dist);
             var pressProb = (pressGap <= BODY_R * 2 + w.reach + LUNGE_ADVANCE)
-                ? ai.lungeRatePerSec * ai.pressBoost * dt / 1000 : 0;
+                ? ai.lungeRatePerSec * ai.pressBoost * assist * dt / 1000 : 0;
             if (Math.random() < pressProb) {
                 startLunge(f, opp);
                 ai.actionCooldown = 620;
@@ -1538,7 +1574,7 @@ function updateAI(dt) {
                     (!w.priority || boutAttacker !== opp.side);
     if (!canAttack) return;
 
-    var lungeProb = ai.lungeRatePerSec * dt / 1000;
+    var lungeProb = ai.lungeRatePerSec * assist * dt / 1000;
     // Punish a whiffed attack — the recovery window is the free hit, and the
     // more the player whiffs, the more the AI waits for it.
     if (opp.act === 'lunge_recover') lungeProb *= 4.5 + ai.readWhiff * 5;
@@ -1621,7 +1657,7 @@ function startBout(f1, f2, opts) {
     boutLastCall = '';
     boutAttacker = 0;
     boutSimul = false;
-    boutMsg = 'EN GARDE';
+    boutMsg = 'READY';
     boutMsgSub = '';
     boutMsgT = 900;
     fxReset();
@@ -1691,9 +1727,10 @@ function deleteAllData() {
         localStorage.removeItem(_KP + 'tutorialSeen');
         localStorage.removeItem(STATS_KEY);
         localStorage.removeItem(WEAPON_KEY);
+        localStorage.removeItem(ASSIST_KEY);
     } catch(e) {}
-    soundOn = false; sfxOn = true; musicOn = false;
-    difficulty = 1;
+    soundOn = true; sfxOn = true; musicOn = true;
+    difficulty = D_BEGINNER;
     weaponKey = 'foil';
     stats = defaultStats();
     tournament = null;
@@ -1708,7 +1745,7 @@ function drawSettings() {
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     var dlgW = p ? VIEW_W - 40 : 340;
-    var dlgH = Math.min(VIEW_H - 12, p ? 570 : 402);
+    var dlgH = Math.min(VIEW_H - 24, p ? 560 : 442);
     var dlgX = Math.round((VIEW_W - dlgW) / 2);
     var dlgY = Math.round((VIEW_H - dlgH) / 2);
     drawPixelRoundRect(dlgX, dlgY, dlgW, dlgH, 4, COLOR_GOLD);
@@ -1737,19 +1774,22 @@ function drawSettings() {
         drawButton(bx, by, bw, bh, 'Effects: ' + (sfxOn ? 'ON' : 'OFF'), settingsFocus === 2);
         _settingsRects.sfx = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap;
-        drawButton(bx, by, bw, bh, 'Weapon: ' + weapon().name, settingsFocus === 3);
+        drawButton(bx, by, bw, bh, 'Go Easy On Me: ' + (assistOn ? 'ON' : 'OFF'), settingsFocus === 3);
+        _settingsRects.assist = { x: bx, y: by, w: bw, h: bh };
+        by += bh + gap;
+        drawButton(bx, by, bw, bh, 'Sword: ' + weapon().name + ' (' + weapon().realName + ')', settingsFocus === 4);
         _settingsRects.weapon = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap;
-        drawButton(bx, by, bw, bh, 'Difficulty: ' + _diffNames[difficulty], settingsFocus === 4);
+        drawButton(bx, by, bw, bh, 'Difficulty: ' + _diffNames[difficulty], settingsFocus === 5);
         _settingsRects.difficulty = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap;
-        drawButton(bx, by, bw, bh, 'How to Play', settingsFocus === 5);
+        drawButton(bx, by, bw, bh, 'How to Play', settingsFocus === 6);
         _settingsRects.tutorial = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap;
-        drawButton(bx, by, bw, bh, 'Delete All Data', settingsFocus === 6);
+        drawButton(bx, by, bw, bh, 'Delete All Data', settingsFocus === 7);
         _settingsRects.del = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap + (p ? 6 : 4);
-        drawButton(bx, by, bw, bh, 'Close', settingsFocus === 7);
+        drawButton(bx, by, bw, bh, 'Close', settingsFocus === 8);
         _settingsRects.close = { x: bx, y: by, w: bw, h: bh };
     } else {
         // Confirmation
@@ -1785,7 +1825,7 @@ function drawTutorial() {
     ctx.fillStyle = 'rgba(0,0,0,0.78)';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     var dlgW = p ? VIEW_W - 30 : 440;
-    var dlgH = Math.min(VIEW_H - 16, p ? VIEW_H - 120 : 312);
+    var dlgH = Math.min(VIEW_H - 24, p ? 400 : 312);
     var dlgX = Math.round((VIEW_W - dlgW) / 2);
     var dlgY = Math.round((VIEW_H - dlgH) / 2);
     drawPixelRoundRect(dlgX, dlgY, dlgW, dlgH, 4, COLOR_GOLD);
@@ -1801,24 +1841,22 @@ function drawTutorial() {
     var ly = dlgY + (p ? 54 : 44);
     var leftX = dlgX + 20;
 
-    // ── Controls table ──
+    // ── Controls ──
     ctx.font = 'bold ' + (p ? 9 : 7) + 'px ' + FONT;
     var rows;
     if (_isTouchDevice) {
         rows = [
-            ['HOLD L/R',   'Move along the piste'],
+            ['HOLD RIGHT', 'Move towards them'],
+            ['HOLD LEFT',  'Back away'],
             ['TAP',        'Attack'],
-            ['TAP TWICE',  'Feint — go around a block'],
-            ['SWIPE DOWN', 'Block'],
-            ['SWIPE UP',   'Attack / riposte']
+            ['SWIPE DOWN', 'Block']
         ];
     } else {
         rows = [
-            ['\u2190 \u2192',  'Move along the piste'],
+            ['\u2192',         'Move towards them'],
+            ['\u2190',         'Back away'],
             ['\u2191 / SPACE', 'Attack'],
-            ['\u2191 \u2191',  'Feint — go around a block'],
-            ['\u2193',         'Block'],
-            ['ESC',            'Quit']
+            ['\u2193',         'Block']
         ];
     }
     for (var i = 0; i < rows.length; i++) {
@@ -1829,12 +1867,12 @@ function drawTutorial() {
         ly += lineH;
     }
 
-    // ── The triangle ──
-    ly += p ? 10 : 8;
-    ctx.font = 'bold ' + (p ? 9 : 7) + 'px ' + FONT;
+    // ── The one rule that matters ──
+    ly += p ? 12 : 9;
+    ctx.font = 'bold ' + (p ? 10 : 8) + 'px ' + FONT;
     ctx.fillStyle = COLOR_GOLD;
-    ctx.fillText('BLOCK beats ATTACK  \u2192  FEINT beats BLOCK', leftX, ly);
-    ly += p ? 15 : 12;
+    ctx.fillText('THE ONE RULE', leftX, ly);
+    ly += p ? 16 : 13;
 
     ctx.font = (p ? 9 : 7) + 'px ' + FONT;
     ctx.fillStyle = '#fff';
@@ -1842,29 +1880,26 @@ function drawTutorial() {
     var rules;
     if (weapon().key === 'epee') {
         rules = [
-            'EPEE has no priority. Whoever lands first',
-            'scores — and if you both land together,',
-            'you BOTH get a point. Longest reach.',
+            'Get close, then attack.',
             '',
-            'Block an attack, then attack straight back:',
-            'that RIPOSTE is fast and hard to stop.',
+            'With this sword there are no rules about',
+            'who went first. Whoever lands, scores.',
+            'If you both land, you both get a point.',
             '',
-            'Every action costs stamina (the bar under',
-            'your score). Run dry and you slow down.'
+            'The game tells you what to press.',
+            'Just follow the prompt on screen.'
         ];
     } else {
         rules = [
-            'Whoever attacks first has the upper hand.',
-            'Only their hit scores.',
+            'Whoever attacks FIRST owns the point.',
+            'If they attacked first, your hit does not',
+            'count \u2014 block instead, then hit them.',
             '',
-            'No upper hand? BLOCK to steal it, then',
-            'RIPOSTE immediately — fast and hard to stop.',
+            'So: get close, attack. If they attack',
+            'first, block, then hit them straight back.',
             '',
-            'Expecting a block? Attack TWICE to FEINT',
-            'around it. Feints miss badly, so time them.',
-            '',
-            'Every action costs stamina (the bar under',
-            'your score). Run dry and you slow down.'
+            'The game tells you what to press.',
+            'Just follow the prompt on screen.'
         ];
     }
     for (var ri = 0; ri < rules.length; ri++) {
@@ -2382,7 +2417,7 @@ function startLunge(f, opp) {
         spend(f, STAM_COST.feint - STAM_COST.lunge);
         fxSpark(bladeTipX(f), bladeTipY(f), 5, '#ffe9a0');
         sfxFeint();
-        boutMsg = 'FEINT!';
+        boutMsg = 'FAKE!';
         boutMsgSub = '';
         boutMsgT = 620;
         return;
@@ -2444,7 +2479,7 @@ function startParry(f, opp) {
         if (opp.feint) {
             // Feint beats the parry: the blade goes around it and they keep
             // coming. The defender is now committed to a block that isn't there.
-            boutMsg = 'DECEIVED!';
+            boutMsg = 'FAKED YOU OUT!';
             boutMsgSub = 'THEY WENT AROUND YOUR BLOCK';
             boutMsgT = 700;
             f.act = 'parry_recover';
@@ -2473,8 +2508,8 @@ function resolveParry(defender, attacker) {
     defender.riposteT = w.riposteWindow;
     if (w.priority) { boutAttacker = defender.side; boutSimul = false; }
     if (defender.side === 1) {
-        boutMsg = 'PARRY!';
-        boutMsgSub = 'RIPOSTE NOW';
+        boutMsg = 'BLOCKED IT!';
+        boutMsgSub = 'NOW HIT THEM \u2014 FREE SHOT';
     } else {
         boutMsg = 'BLOCKED';
         boutMsgSub = '';
@@ -2532,7 +2567,7 @@ function tryHit(attacker, defender) {
         if (attacker.feint) {
             attacker.actT = actDur(attacker, w.tRecover + 180);
             if (attacker.side === 1) {
-                boutMsg = 'FEINT MISSED';
+                boutMsg = 'FAKE MISSED';
                 boutMsgSub = '';
                 boutMsgT = 700;
             }
@@ -2554,7 +2589,7 @@ function tryHit(attacker, defender) {
               (actDur(defender, w.tExtend) - defender.actT) < SIMUL_WINDOW) ||
              defender.act === 'lunge_peak' || defender.act === 'riposte');
         if (theyAlsoLanded) {
-            scoreTouch(null, 'DOUBLE TOUCH', 'BOTH LIGHTS — ONE EACH');
+            scoreTouch(null, 'BOTH HIT!', 'A POINT EACH');
             return;
         }
         scoreTouch(attacker, null, null);
@@ -2563,7 +2598,7 @@ function tryHit(attacker, defender) {
 
     // A clash only stands if their point could also have arrived.
     if (boutSimul && defenderCanReach(defender, attacker)) {
-        haltNoPoint('SIMULTANEOUS', 'BOTH ATTACKED — NO POINT');
+        haltNoPoint('NO POINT', 'YOU BOTH ATTACKED AT THE SAME TIME');
         return;
     }
 
@@ -2572,9 +2607,9 @@ function tryHit(attacker, defender) {
     } else {
         // The point landed but the other fencer owned the phrase.
         haltNoPoint(
-            attacker.side === 1 ? 'NO POINT' : 'OFF TARGET',
-            attacker.side === 1 ? 'THEY ATTACKED FIRST — BLOCK NEXT TIME'
-                                : 'YOUR ATTACK HAD PRIORITY');
+            'NO POINT',
+            attacker.side === 1 ? 'THEY ATTACKED FIRST — BLOCK, THEN HIT'
+                                : 'YOU ATTACKED FIRST, SO THEIRS DID NOT COUNT');
     }
 }
 
@@ -2601,7 +2636,7 @@ function scoreTouch(scorer, msg, sub) {
         bp1.act = 'touched'; bp1.actT = 1100;
         bp2.act = 'touched'; bp2.actT = 1100;
         boutLastCall = 'double';
-        boutMsg = msg || 'DOUBLE TOUCH';
+        boutMsg = msg || 'BOTH HIT!';
         boutMsgSub = sub || '';
         fxLight(1); fxLight(2);
         fxShake(8, 260);
@@ -2617,12 +2652,12 @@ function scoreTouch(scorer, msg, sub) {
         victim.act = 'touched';
         victim.actT = 1150;
         boutLastCall = (scorer.side === 1) ? 'touch1' : 'touch2';
-        var how = scorer.wasRiposte ? 'RIPOSTE' : (scorer.feint ? 'FEINT' : null);
+        var how = scorer.wasRiposte ? 'COUNTER' : (scorer.feint ? 'FAKE' : null);
         if (scorer.side === 1) {
-            boutMsg = how ? (how + ' — TOUCH!') : 'TOUCH!';
+            boutMsg = how ? (how + ' — HIT!') : 'HIT!';
             boutMsgSub = 'POINT TO YOU';
         } else {
-            boutMsg = 'TOUCH AGAINST';
+            boutMsg = 'THEY SCORED';
             boutMsgSub = 'POINT TO ' + scorer.fencer.name.toUpperCase();
         }
         fxLight(scorer.side);
@@ -2738,8 +2773,8 @@ function updateBout(dt) {
     if (state === S_BOUT_INTRO) {
         boutMsgT -= dt;
         if (boutMsgT <= 0) {
-            if (boutMsg === 'EN GARDE') { boutMsg = 'READY?'; boutMsgSub = ''; boutMsgT = 550; }
-            else if (boutMsg === 'READY?') { boutMsg = 'FENCE!'; boutMsgSub = ''; boutMsgT = 550; sfxAllez(); }
+            if (boutMsg === 'READY') { boutMsg = 'SET'; boutMsgSub = ''; boutMsgT = 480; }
+            else if (boutMsg === 'SET') { boutMsg = 'GO!'; boutMsgSub = ''; boutMsgT = 520; sfxAllez(); }
             else { state = S_BOUT_PLAY; boutMsg = ''; boutMsgSub = ''; }
         }
         dirty = true;
@@ -2795,7 +2830,7 @@ function updateBout(dt) {
                 boutSuddenDeath = true;
                 boutClock = 60000;
                 boutMsg = 'SUDDEN DEATH';
-                boutMsgSub = 'NEXT TOUCH WINS';
+                boutMsgSub = 'NEXT POINT WINS';
                 boutMsgT = 1600;
                 sfxMatchPoint();
                 } else {
@@ -2841,8 +2876,8 @@ function checkPisteEnd(f, opp, dt) {
     if (f.endT < PISTE_END_GRACE) return false;
     f.endT = 0;
     scoreTouch(opp, null, null);
-    boutMsg = (f.side === 1) ? 'OFF THE END' : 'THEY RAN OUT OF PISTE';
-    boutMsgSub = (f.side === 1) ? 'YOU RETREATED PAST THE LINE — POINT AGAINST'
+    boutMsg = (f.side === 1) ? 'BACKED OFF THE END' : 'THEY BACKED OFF THE END';
+    boutMsgSub = (f.side === 1) ? 'YOU RAN OUT OF ROOM — POINT AGAINST'
                                 : 'POINT TO YOU';
     return true;
 }
@@ -3324,6 +3359,7 @@ var _titleSettingsBtn = { x: 0, y: 0, w: 0, h: 0 };
 var _title2PBtn = { x: 0, y: 0, w: 0, h: 0 };
 var _titleStatsBtn = { x: 0, y: 0, w: 0, h: 0 };
 var _titleQuickBtn = { x: 0, y: 0, w: 0, h: 0 };
+var _titleHelpBtn = { x: 0, y: 0, w: 0, h: 0 };
 
 function drawTitle() {
     var p = isPortrait();
@@ -3364,8 +3400,8 @@ function drawTitle() {
 
     // Five stacked main buttons. Difficulty lives in the Settings modal;
     // Settings and Records sit in the footer row.
-    var totalBtnH = btnH * 5 + btnGap * 4;
-    var btnTopY = footerY - totalBtnH - (p ? 20 : 14);
+    var totalBtnH = btnH * 4 + btnGap * 3;
+    var btnTopY = footerY - totalBtnH - (p ? 44 : 32);
 
     // Available middle space between banner and buttons. Sprite size is sized
     // to fit ~70% of that height so it never collides with the banner.
@@ -3407,35 +3443,38 @@ function drawTitle() {
             skinFor(titleFencer), { bobFrame: titleBob, bladeExt: titleBladeExt });
     }
 
-    var tourneyLabel = hasSavedTournament() ? 'Continue Tournament' : 'Tournament';
     var bx = VIEW_W / 2 - btnW / 2;
     var rowY = btnTopY;
-    drawButton(bx, rowY, btnW, btnH, tourneyLabel, titleFocus === 0);
-    _titleTourneyBtn = { x: bx, y: rowY, w: btnW, h: btnH }; rowY += btnH + btnGap;
-    drawButton(bx, rowY, btnW, btnH, 'Quick Bout', titleFocus === 1);
+    drawButton(bx, rowY, btnW, btnH, 'Play', titleFocus === 0);
     _titleQuickBtn = { x: bx, y: rowY, w: btnW, h: btnH }; rowY += btnH + btnGap;
-    drawButton(bx, rowY, btnW, btnH, 'Choose & Fence', titleFocus === 2);
-    _titlePracticeBtn = { x: bx, y: rowY, w: btnW, h: btnH }; rowY += btnH + btnGap;
+    drawButton(bx, rowY, btnW, btnH, 'How to Play', titleFocus === 1);
+    _titleHelpBtn = { x: bx, y: rowY, w: btnW, h: btnH }; rowY += btnH + btnGap;
+    drawButton(bx, rowY, btnW, btnH,
+        hasSavedTournament() ? 'Continue Tournament' : 'Tournament', titleFocus === 2);
+    _titleTourneyBtn = { x: bx, y: rowY, w: btnW, h: btnH }; rowY += btnH + btnGap;
     drawButton(bx, rowY, btnW, btnH, '2 Players', titleFocus === 3);
-    _title2PBtn = { x: bx, y: rowY, w: btnW, h: btnH }; rowY += btnH + btnGap;
-    drawButton(bx, rowY, btnW, btnH, 'Roster', titleFocus === 4);
-    _titleRosterBtn = { x: bx, y: rowY, w: btnW, h: btnH };
+    _title2PBtn = { x: bx, y: rowY, w: btnW, h: btnH };
 
-    // Footer: Records bottom-left, Settings bottom-right
-    var recX = footerMargin + SAFE_X;
-    drawButton(recX, footerY, footerBtnW, footerBtnH, 'Records', titleFocus === 5);
-    _titleStatsBtn = { x: recX, y: footerY, w: footerBtnW, h: footerBtnH };
-    var setX = VIEW_W - footerBtnW - footerMargin - SAFE_X;
-    drawButton(setX, footerY, footerBtnW, footerBtnH, 'Settings', titleFocus === 6);
-    _titleSettingsBtn = { x: setX, y: footerY, w: footerBtnW, h: footerBtnH };
+    // Footer: pick your fencer, records, settings
+    var fw3 = Math.min(footerBtnW, Math.floor((VIEW_W - footerMargin * 2 - SAFE_X * 2 - 16) / 3));
+    var fx0 = footerMargin + SAFE_X;
+    drawButton(fx0, footerY, fw3, footerBtnH, 'My Fencer', titleFocus === 4);
+    _titlePracticeBtn = { x: fx0, y: footerY, w: fw3, h: footerBtnH };
+    var fx1 = Math.round(VIEW_W / 2 - fw3 / 2);
+    drawButton(fx1, footerY, fw3, footerBtnH, 'Records', titleFocus === 5);
+    _titleStatsBtn = { x: fx1, y: footerY, w: fw3, h: footerBtnH };
+    var setX = VIEW_W - fw3 - footerMargin - SAFE_X;
+    drawButton(setX, footerY, fw3, footerBtnH, 'Settings', titleFocus === 6);
+    _titleSettingsBtn = { x: setX, y: footerY, w: fw3, h: footerBtnH };
+    _titleRosterBtn = { x: 0, y: 0, w: 0, h: 0 };
 
-    // Current weapon, so the player always knows what Quick Bout will start.
+    // What Play will actually start, in plain words.
     ctx.font = 'bold ' + (p ? 9 : 7) + 'px ' + FONT;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillText(weapon().name + '  ·  ' + _diffNames[difficulty],
-        VIEW_W / 2, footerY + footerBtnH / 2);
+    ctx.fillText(weapon().name + ' SWORD  ·  ' + _diffNames[difficulty],
+        VIEW_W / 2, footerY - (p ? 14 : 11));
 }
 
 // loadTournament() parses JSON and rebuilds objects; calling it every frame
@@ -3800,21 +3839,86 @@ function drawStaminaBar(x, y, w, h, f, rightToLeft) {
 // Sits over each fencer rather than printing the answer in the middle of the
 // screen. Gold chevron = you own the phrase; red = they do, block to take it.
 
+// ── Coaching ───────────────────────────────────────────────────────────────
+//
+// A new player has no idea what to press or when. Rather than a label naming
+// a fencing concept ("RIPOSTE", "priority"), this says the key and the reason,
+// in that order, for whatever the situation actually is right now.
+//
+// Always on at the gentler tiers; on the harder ones it fades out once you
+// have played enough bouts to have stopped needing it.
+
+function coachEnabled() {
+    if (twoPlayer) return false;
+    if (difficulty <= D_EASY) return true;
+    return stats && stats.bouts < 6;
+}
+
+// Input names differ by device, so the prompt is built from these.
+function keyMove()   { return _isTouchDevice ? 'HOLD RIGHT' : 'PRESS \u2192'; }
+function keyBack()   { return _isTouchDevice ? 'HOLD LEFT'  : 'PRESS \u2190'; }
+function keyHit()    { return _isTouchDevice ? 'TAP'        : 'PRESS \u2191'; }
+function keyBlock()  { return _isTouchDevice ? 'SWIPE DOWN' : 'PRESS \u2193'; }
+
+// What should the player do this instant?
+function coachPrompt() {
+    if (!bp1 || !bp2) return null;
+    var w = weapon();
+    var gap = Math.abs(bp2.pos - bp1.pos);
+    var inRange = gap <= (BODY_R * 2 + reachOf(bp1) + LUNGE_ADVANCE);
+    var theyAttack = (bp2.act === 'lunge_extend' || bp2.act === 'lunge_peak' ||
+                      bp2.act === 'riposte');
+
+    // 1. The free hit after a successful block.
+    if (bp1.riposteT > 0) {
+        return { text: keyHit() + ' NOW!', sub: 'FREE HIT', color: COLOR_GOLD, urgent: true };
+    }
+    // 2. Incoming attack.
+    if (theyAttack && gap < (BODY_R * 2 + reachOf(bp2) + LUNGE_ADVANCE + 0.5)) {
+        return { text: keyBlock() + ' TO BLOCK', sub: 'THEY ARE ATTACKING', color: '#ff6666', urgent: true };
+    }
+    // 3. Out of breath — the bar is empty and nothing will work.
+    if (bp1.stamina < STAM_TIRED * 0.75) {
+        return { text: keyBack() + ' TO REST', sub: 'YOU ARE OUT OF BREATH', color: '#ffaa44' };
+    }
+    // 4. They started the attack, so only their hit counts until you block.
+    if (w.priority && boutAttacker === 2) {
+        return { text: keyBlock() + ' TO BLOCK', sub: 'THEY WENT FIRST — YOUR HIT WON\'T COUNT', color: '#ff6666' };
+    }
+    // 5. Close enough to land one.
+    if (inRange && bp1.act === 'idle') {
+        return { text: keyHit() + ' TO HIT', sub: 'YOU ARE IN RANGE', color: COLOR_GOLD };
+    }
+    // 6. Too far away.
+    if (!inRange && bp1.act === 'idle') {
+        return { text: keyMove() + ' TO GET CLOSER', sub: 'TOO FAR TO REACH', color: '#9fd8ff' };
+    }
+    return null;
+}
+
 function drawPriorityIndicator(yCenter) {
     var yTop = yCenter - Math.round(SPRITE_ROWS * 1.8 * boutSpriteSize()) - 16;
+
+    if (coachEnabled() && state === S_BOUT_PLAY) {
+        var c = coachPrompt();
+        if (c) drawCoachBanner(c, yTop);
+        return;
+    }
+
+    // Compact indicator once coaching is off.
     if (bp1.riposteT > 0) {
-        drawCallout(pisteX(effPos(bp1)), yTop, 'RIPOSTE!', COLOR_GOLD, true);
+        drawCallout(pisteX(effPos(bp1)), yTop, 'FREE HIT!', COLOR_GOLD, true);
         return;
     }
-    if (boutAttacker === 0 && !boutSimul) return;
     if (boutSimul) {
-        drawCallout(VIEW_W / 2, yTop, 'CLASH', '#ffaa44', false);
+        drawCallout(VIEW_W / 2, yTop, 'BOTH AT ONCE', '#ffaa44', false);
         return;
     }
-    if (!weapon().priority) return;   // épée has no right of way to show
+    if (boutAttacker === 0) return;
+    if (!weapon().priority) return;   // this sword has no first-mover rule
     var mine = (boutAttacker === 1);
     drawCallout(pisteX(effPos(mine ? bp1 : bp2)), yTop,
-        mine ? 'ATTACK' : 'BLOCK!', mine ? COLOR_GOLD : '#ff5555', mine);
+        mine ? 'YOUR ATTACK' : 'BLOCK!', mine ? COLOR_GOLD : '#ff5555', mine);
 }
 
 // Flash a warning once the player is past their rear warning line.
@@ -3827,8 +3931,43 @@ function drawPisteWarning(yCenter) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = atEnd ? '#ff5555' : '#ffaa44';
-    ctx.fillText(atEnd ? 'END OF PISTE!' : 'RUNNING OUT OF PISTE',
+    ctx.fillText(atEnd ? 'END OF THE STRIP!' : 'RUNNING OUT OF ROOM',
         pisteX(bp1.pos), yCenter + 20);
+}
+
+// Big, unmissable instruction pinned above the action.
+function drawCoachBanner(c, yTop) {
+    var p = isPortrait();
+    var fs = p ? 13 : 11;
+    var ss = p ? 8 : 7;
+    ctx.font = 'bold ' + fs + 'px ' + FONT;
+    var w1 = ctx.measureText(c.text).width;
+    ctx.font = 'bold ' + ss + 'px ' + FONT;
+    var w2 = c.sub ? ctx.measureText(c.sub).width : 0;
+    var bw = Math.min(VIEW_W - 20, Math.max(w1, w2) + 22);
+    var bh = fs + (c.sub ? ss + 8 : 0) + 14;
+    var bx = Math.round(VIEW_W / 2 - bw / 2);
+    var by = Math.round(yTop - bh + 6);
+
+    var pulse = c.urgent ? (0.72 + 0.28 * Math.sin(performance.now() / 90)) : 1;
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = 'rgba(0,0,0,0.82)';
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.fillStyle = c.color;
+    ctx.fillRect(bx, by, bw, 2);
+    ctx.fillRect(bx, by + bh - 2, bw, 2);
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold ' + fs + 'px ' + FONT;
+    ctx.fillStyle = c.color;
+    ctx.fillText(c.text, VIEW_W / 2, by + 8 + fs / 2);
+    if (c.sub) {
+        ctx.font = 'bold ' + ss + 'px ' + FONT;
+        ctx.fillStyle = 'rgba(255,255,255,0.75)';
+        ctx.fillText(c.sub, VIEW_W / 2, by + bh - 9 - ss / 2);
+    }
+    ctx.globalAlpha = 1;
 }
 
 function drawCallout(x, y, label, color, up) {
@@ -3980,7 +4119,9 @@ function drawBoutControlsHint(yBottom) {
     // Leave room for the quit control in the bottom-right corner.
     var cx = (VIEW_W - (isPortrait() ? 40 : 34)) / 2;
     if (_isTouchDevice) {
-        ctx.fillText('HOLD = MOVE   TAP = ATTACK   SWIPE DOWN = BLOCK   TAP TWICE = FEINT',
+        ctx.fillText(difficulty <= D_EASY
+            ? 'HOLD = MOVE     TAP = ATTACK     SWIPE DOWN = BLOCK'
+            : 'HOLD = MOVE   TAP = ATTACK   TAP TWICE = FAKE   SWIPE DOWN = BLOCK',
             cx, yBottom);
         return;
     }
@@ -3989,7 +4130,10 @@ function drawBoutControlsHint(yBottom) {
             cx, yBottom);
         return;
     }
-    ctx.fillText('← → MOVE    ↑ ATTACK (TWICE = FEINT)    ↓ BLOCK    ESC QUIT',
+    // The fake is an advanced move; don't put it in front of a new player.
+    ctx.fillText(difficulty <= D_EASY
+        ? '← → MOVE      ↑ ATTACK      ↓ BLOCK      ESC QUIT'
+        : '← → MOVE   ↑ ATTACK   ↑↑ FAKE   ↓ BLOCK   ESC QUIT',
         cx, yBottom);
 }
 
@@ -4485,7 +4629,7 @@ function drawStatsScreen() {
     ly = row(lx, ly, 'BEST STREAK', s.bestStreak);
     ly = row(lx, ly, 'CURRENT STREAK', s.curStreak);
     ly += 4;
-    ly = section(lx, ly, 'TOUCHES');
+    ly = section(lx, ly, 'POINTS');
     ly = row(lx, ly, 'SCORED', s.touchesFor);
     ly = row(lx, ly, 'CONCEDED', s.touchesAgainst);
     ly = row(lx, ly, 'DIFFERENCE',
@@ -4494,12 +4638,12 @@ function drawStatsScreen() {
     // ── Right column: technique + weapons ──
     var rx = margin + colW + colGap, ry = top;
     ry = section(rx, ry, 'TECHNIQUE');
-    ry = row(rx, ry, 'PARRIES', s.parries);
-    ry = row(rx, ry, 'RIPOSTES LANDED', s.ripostes);
-    ry = row(rx, ry, 'FEINTS LANDED', s.feints);
-    ry = row(rx, ry, 'DOUBLE TOUCHES', s.doubles);
+    ry = row(rx, ry, 'BLOCKS', s.parries);
+    ry = row(rx, ry, 'COUNTER HITS', s.ripostes);
+    ry = row(rx, ry, 'FAKES THAT WORKED', s.feints);
+    ry = row(rx, ry, 'BOTH-HIT POINTS', s.doubles);
     ry += 4;
-    ry = section(rx, ry, 'BY WEAPON');
+    ry = section(rx, ry, 'BY SWORD');
     for (var i = 0; i < WEAPON_ORDER.length; i++) {
         var wk = WEAPON_ORDER[i];
         var bw = (s.byWeapon && s.byWeapon[wk]) || { w: 0, l: 0 };
@@ -4542,6 +4686,10 @@ function drawStatsScreen() {
 
 // Straight into a bout with the saved favourite and last weapon. The old flow
 // was five taps between every 30-second bout.
+function defaultTarget() {
+    return (difficulty <= D_EASY) ? 3 : 5;
+}
+
 function enterQuickBout() {
     ensureAudioStarted();
     sfxMenuConfirm();
@@ -4549,7 +4697,7 @@ function enterQuickBout() {
     var mine = fencerByCode(loadFavorite()) || FENCERS[0];
     if (!mine) return;
     var opp = randomOpponent(mine.code);
-    startBout(mine, opp, { target: 5 });
+    startBout(mine, opp, { target: defaultTarget() });
 }
 
 function enterTwoPlayer() {
@@ -4611,7 +4759,7 @@ function drawFencerSelect() {
 
     var cols = 4, rows = 4;
     var wpnRowH = p ? 30 : 24;
-    var topPad = BAR_H + wpnRowH + (p ? 18 : 12);
+    var topPad = BAR_H + wpnRowH + (p ? 30 : 24);
     var bottomBtnH = p ? 44 : 30;
     var bottomPad = bottomBtnH + (p ? 56 : 44);
     var gridH = VIEW_H - topPad - bottomPad;
@@ -4663,15 +4811,26 @@ function drawFencerSelect() {
     // ── Weapon selector ──
     // Sits above the grid because it changes how the whole bout plays, not
     // just who you look like.
-    var wy = BAR_H + (p ? 6 : 4);
+    var wy = BAR_H + (p ? 16 : 13);
     var wBtnW = Math.min(110, Math.floor((gridW - 16) / 3));
     var wStartX = Math.round(VIEW_W / 2 - (wBtnW * 3 + 12) / 2);
     _fsWeaponBtns = [];
+    ctx.font = 'bold ' + (p ? 8 : 7) + 'px ' + FONT;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillText('SWORD', VIEW_W / 2, wy - (p ? 7 : 6));
     for (var wi = 0; wi < WEAPON_ORDER.length; wi++) {
         var wk = WEAPON_ORDER[wi];
         var wx = wStartX + wi * (wBtnW + 6);
         var sel = (wk === weaponKey);
         drawButton(wx, wy, wBtnW, wpnRowH - 6, WEAPONS[wk].name, sel);
+        // Keep the real fencing name visible, just not as the headline.
+        ctx.font = (p ? 6 : 5) + 'px ' + FONT;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = sel ? COLOR_GOLD : 'rgba(255,255,255,0.4)';
+        ctx.fillText(WEAPONS[wk].realName, wx + wBtnW / 2, wy + wpnRowH - 1);
         _fsWeaponBtns.push({ x: wx, y: wy, w: wBtnW, h: wpnRowH - 6, key: wk });
     }
 
@@ -4686,7 +4845,7 @@ function drawFencerSelect() {
     if (hf) {
         ctx.fillStyle = COLOR_GOLD;
         ctx.fillText(hf.name.toUpperCase() + '  ·  ' + styleNameFor(hf) +
-            '  ·  ' + hf.strength + '/5', VIEW_W / 2, infoY);
+            '  ·  SKILL ' + hf.strength + '/5', VIEW_W / 2, infoY);
     }
 
     // Footer: Back + Confirm
@@ -5077,7 +5236,7 @@ function confirmFencerSelect() {
         dirty = true;
     } else {
         var player = fencerByCode(fsHighlightCode);
-        startBout(player, randomOpponent(fsHighlightCode), { target: 5 });
+        startBout(player, randomOpponent(fsHighlightCode), { target: defaultTarget() });
     }
 }
 
@@ -5128,7 +5287,7 @@ function startMatchIntroBout() {
     var playerFencer, opponent;
     if (match.a.code === tournament.playerCode) { playerFencer = match.a; opponent = match.b; }
     else { playerFencer = match.b; opponent = match.a; }
-    startBout(playerFencer, opponent);
+    startBout(playerFencer, opponent, { target: defaultTarget() });
 }
 
 function finishTournamentMatch() {
@@ -5233,6 +5392,7 @@ function onPointerDown(e) {
             if (pointInRect(pt, _settingsRects.sound))      { toggleSoundSetting(); return; }
             if (pointInRect(pt, _settingsRects.music))      { toggleMusicSetting(); return; }
             if (pointInRect(pt, _settingsRects.sfx))        { toggleSfxSetting(); return; }
+            if (pointInRect(pt, _settingsRects.assist))     { toggleAssist(); return; }
             if (pointInRect(pt, _settingsRects.weapon))     { cycleWeapon(1); return; }
             if (pointInRect(pt, _settingsRects.difficulty)) { cycleDifficulty(); return; }
             if (pointInRect(pt, _settingsRects.tutorial))   { settingsVisible = false; openTutorial(); return; }
@@ -5259,9 +5419,9 @@ function onPointerDown(e) {
         if (pointInRect(pt, _titleStatsBtn))    { enterStats(); return; }
         if (pointInRect(pt, _titleTourneyBtn))  { enterTournament(); return; }
         if (pointInRect(pt, _titleQuickBtn))    { enterQuickBout(); return; }
+        if (pointInRect(pt, _titleHelpBtn))     { openTutorial(); return; }
         if (pointInRect(pt, _titlePracticeBtn)) { enterPracticeBout(); return; }
         if (pointInRect(pt, _title2PBtn))       { enterTwoPlayer(); return; }
-        if (pointInRect(pt, _titleRosterBtn))   { enterRoster(); return; }
         return;
     }
     if (state === S_STATS) {
@@ -5507,16 +5667,17 @@ function onKeyDown(e) {
                 if (settingsFocus === 0) toggleSoundSetting();
                 else if (settingsFocus === 1) toggleMusicSetting();
                 else if (settingsFocus === 2) toggleSfxSetting();
-                else if (settingsFocus === 3) cycleWeapon(1);
-                else if (settingsFocus === 4) cycleDifficulty();
-                else if (settingsFocus === 5) { settingsVisible = false; openTutorial(); }
-                else if (settingsFocus === 6) { settingsConfirmDelete = 1; settingsFocus = 1; sfxMenuBack(); dirty = true; }
-                else if (settingsFocus === 7) closeSettings();
+                else if (settingsFocus === 3) toggleAssist();
+                else if (settingsFocus === 4) cycleWeapon(1);
+                else if (settingsFocus === 5) cycleDifficulty();
+                else if (settingsFocus === 6) { settingsVisible = false; openTutorial(); }
+                else if (settingsFocus === 7) { settingsConfirmDelete = 1; settingsFocus = 1; sfxMenuBack(); dirty = true; }
+                else if (settingsFocus === 8) closeSettings();
             } else {
                 if (settingsFocus === 0) {
                     if (settingsConfirmDelete === 1) { settingsConfirmDelete = 2; sfxBlade(); dirty = true; }
                     else { deleteAllData(); }
-                } else { settingsConfirmDelete = 0; settingsFocus = 6; sfxMenuBack(); dirty = true; }
+                } else { settingsConfirmDelete = 0; settingsFocus = 7; sfxMenuBack(); dirty = true; }
             }
             return;
         }
@@ -5537,18 +5698,20 @@ function onKeyDown(e) {
         if (e.key === 'ArrowUp')   { titleFocus = (titleFocus - 1 + TITLE_FOCUS_COUNT) % TITLE_FOCUS_COUNT; dirty = true; e.preventDefault(); return; }
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            if      (titleFocus === 0) enterTournament();
-            else if (titleFocus === 1) enterQuickBout();
-            else if (titleFocus === 2) enterPracticeBout();
+            if      (titleFocus === 0) enterQuickBout();
+            else if (titleFocus === 1) openTutorial();
+            else if (titleFocus === 2) enterTournament();
             else if (titleFocus === 3) enterTwoPlayer();
-            else if (titleFocus === 4) enterRoster();
+            else if (titleFocus === 4) enterPracticeBout();
             else if (titleFocus === 5) enterStats();
             else if (titleFocus === 6) openSettings();
             return;
         }
         // Letter shortcuts
         if (e.key === 'p' || e.key === 'P') { enterQuickBout(); return; }
-        if (e.key === 'r' || e.key === 'R') { enterRoster(); return; }
+        if (e.key === 't' || e.key === 'T') { enterTournament(); return; }
+        if (e.key === 'h' || e.key === 'H') { openTutorial(); return; }
+        if (e.key === 'r' || e.key === 'R') { enterPracticeBout(); return; }
         if (e.key === 's' || e.key === 'S') { openSettings(); return; }
         if (e.key === 'v' || e.key === 'V') { enterTwoPlayer(); return; }
         if (e.key === 'k' || e.key === 'K') { enterStats(); return; }
@@ -5766,6 +5929,7 @@ function init() {
     loadSoundSettings();
     loadDifficulty();
     loadWeapon();
+    loadAssist();
     loadStats();
     loadFencersData(function() {
         state = S_TITLE;

@@ -5,60 +5,74 @@ dependencies — a canvas, one script, and a JSON roster.
 
 Play it at **[fencing.pixelrugby.com](https://fencing.pixelrugby.com)**.
 
-## The bout
+## How it plays
 
-Fencing is not a sword fight, it's an argument about who started it. The game
-models that directly.
+You need to know one rule: **whoever attacks first owns the point.** If they
+attacked first, your hit doesn't count — block instead, then hit them back.
+
+That's it. You don't need to know anything about fencing; the game prints the
+key to press on screen while you learn.
 
 | Action | Keys | Touch |
 |---|---|---|
-| Move along the piste | `←` `→` | hold left / right |
+| Move towards them | `→` | hold right |
+| Back away | `←` | hold left |
 | Attack | `↑` or `Space` | tap |
-| Feint | `↑` twice, quickly | tap twice |
 | Block | `↓` | swipe down |
-| Riposte | `↑` right after a block | tap after a block |
+| Fake (advanced) | `↑` twice, quickly | tap twice |
 | Quit | `Esc` | QUIT button |
 
-It resolves as a triangle rather than a single button:
+Underneath, it's a triangle:
 
-- **Block beats attack.** A clean parry throws the attacker into a long
-  recovery and opens a **riposte** window — a fast counter that keeps priority.
-  Blocking and then not riposting wastes it.
-- **Feint beats block.** A second attack press early in the extension takes the
-  blade around an expected parry. It costs more stamina and whiffs badly if
-  they were never blocking.
-- **Distance beats everything**, if you read it. A lunge carries the body
-  forward, so stepping in and out of measure is the real game.
+- **Block beats attack.** A clean block throws the attacker into a long
+  recovery and gives you a free shot — take it immediately or you lose it.
+- **Fake beats block.** A second attack press early in the swing takes the
+  blade around an expected block. It costs more and misses badly if they
+  weren't blocking, so it's the last thing a new player needs.
+- **Distance beats both**, if you read it. An attack carries you forward, so
+  stepping in and out of range is the real game.
 
-Every action spends **stamina**. Run dry and your actions slow down and your
-reach falls short, so backing off to breathe is a genuine choice. Retreating
-off the rear limit of the piste concedes a touch, as it does in the sport.
+Every action spends **stamina** (the bar under your score). Run dry and you
+slow down and fall short. Backing off the end of the strip concedes a point,
+as it does in the sport.
 
-## Weapons
+## Difficulty
 
-Three, and they play differently rather than just looking different:
+Starts on **Beginner**, where the opponent is a sparring partner: it rarely
+blocks in time, attacks slowly, and never fakes. Beginner and Easy bouts are
+first to 3; Normal and Hard are first to 5 and expect you to use all three
+verbs.
 
-- **Foil** — right of way, torso target. The classic.
-- **Epee** — *no* right of way and the whole body is target. Hit first, or hit
-  together and you **both** score. Longest reach, slowest. Trading is real.
-- **Sabre** — right of way, fastest tempo, shortest reach. Blink and it's gone.
+**Go Easy On Me** (Settings, on by default) quietly holds the opponent back
+when it is more than one point ahead, so a bad start doesn't spiral.
+
+## Swords
+
+Three, and they play differently rather than just looking different. The
+plain-language name is the headline; the sport's name is underneath.
+
+- **Classic** (*foil*) — the standard. Whoever attacks first owns the point.
+- **Simple** (*épée*) — no rules about who went first. Whoever lands, scores;
+  land together and you both score. Longest reach.
+- **Fast** (*sabre*) — same rules as Classic, roughly twice the speed, and you
+  have to get closer.
 
 ## Modes
 
+- **Play** — straight into a bout with your fencer and sword.
+- **How to Play** — the rules, in about ten lines.
 - **Tournament** — a 16-fencer single-elimination draw, saved between sessions.
-- **Quick Bout** — straight into a bout with your favourite fencer.
-- **Choose & Fence** — pick fencer and weapon first.
 - **2 Players** — local hot seat. P1 on `WASD`, P2 on the arrow keys.
-- **Roster** — all 16 fencers and their styles.
-- **Records** — career stats: wins, streaks, touches, parries, ripostes,
-  feints, per-weapon and per-country splits, titles.
+- **My Fencer** — pick your fencer and sword.
+- **Records** — career stats: wins, streaks, points, blocks, counter hits,
+  fakes that worked, per-sword and per-country splits, titles.
 
 ## The roster
 
-Sixteen nations, each with a **fencing style** that changes how the AI plays
-them — `pressure`, `counter`, `classical`, `deceptive`, `explosive` — layered
-over the difficulty setting. A counter-attacker and a pressure fencer at the
-same difficulty are genuinely different opponents.
+Sixteen nations, each with a **style** that changes how the AI plays them —
+aggressive, defensive, balanced, tricky, sudden — layered over the difficulty
+setting. A defensive and an aggressive fencer at the same difficulty are
+genuinely different opponents.
 
 ## Running it
 
