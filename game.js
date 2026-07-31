@@ -52,27 +52,30 @@ function loadFencersData(callback) {
 // First entry is the background (no x/y/w/h means full rect); subsequent
 // entries are colored stripes/blocks specified as fractional rects.
 function drawFlag(fx, fy, fw, fh, code) {
-    var flag = FLAGS[code];
-    if (!flag || !flag.length) {
-        ctx.fillStyle = '#888';
+    fx = Math.round(fx); fy = Math.round(fy);
+    fw = Math.round(fw); fh = Math.round(fh);
+    var bands = FLAGS[code];
+    if (!bands) {
+        ctx.fillStyle = '#8899aa';
         ctx.fillRect(fx, fy, fw, fh);
     } else {
-        ctx.fillStyle = flag[0].c;
-        ctx.fillRect(fx, fy, fw, fh);
-        for (var i = 0; i < flag.length; i++) {
-            var s = flag[i];
-            if (s.x === undefined && s.y === undefined && s.w === undefined && s.h === undefined && i === 0) continue;
-            var sx = fx + (s.x || 0) * fw;
-            var sy = fy + (s.y || 0) * fh;
-            var sw = (s.w !== undefined ? s.w : 1) * fw;
-            var sh = (s.h !== undefined ? s.h : 1) * fh;
-            ctx.fillStyle = s.c;
-            ctx.fillRect(Math.round(sx), Math.round(sy), Math.round(sw), Math.round(sh));
+        for (var i = 0; i < bands.length; i++) {
+            var b = bands[i];
+            ctx.fillStyle = b.c;
+            ctx.fillRect(
+                fx + Math.round((b.x || 0) * fw),
+                fy + Math.round((b.y || 0) * fh),
+                Math.max(1, Math.round((b.w === undefined ? 1 : b.w) * fw)),
+                Math.max(1, Math.round((b.h === undefined ? 1 : b.h) * fh)));
         }
     }
-    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(fx + 0.5, fy + 0.5, fw - 1, fh - 1);
+    // Hard 1px keyline. strokeRect with a +0.5 offset was antialiased and
+    // smeared at non-integer scales.
+    ctx.fillStyle = '#08182f';
+    ctx.fillRect(fx, fy, fw, 1);
+    ctx.fillRect(fx, fy + fh - 1, fw, 1);
+    ctx.fillRect(fx, fy, 1, fh);
+    ctx.fillRect(fx + fw - 1, fy, 1, fh);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -989,12 +992,22 @@ function resize() {
     }
 
     // Canvas fills the viewport. CSS pixels = viewport pixels exactly.
-    var scale = Math.min(vpW / VIEW_W, vpH / VIEW_H);
     canvas.style.width = vpW + 'px';
     canvas.style.height = vpH + 'px';
     canvas.width = Math.floor(vpW * dpr);
     canvas.height = Math.floor(vpH * dpr);
-    SCALE = scale * dpr;
+
+    // Snap to a whole number of device pixels per logical pixel. A fractional
+    // scale resamples every glyph and every 1px rule, which is what made
+    // portrait look soft next to landscape (which happened to land on 3).
+    var raw = Math.min(vpW / VIEW_W, vpH / VIEW_H) * dpr;
+    var snapped = raw >= 1 ? Math.max(1, Math.round(raw)) : raw;
+    if (snapped >= 2 && canvas.width / snapped < 360) snapped -= 1;
+    SCALE = snapped;
+    // Derive the logical viewport from the snapped scale so the frame is still
+    // filled edge to edge — no letterboxing, just crisp pixels.
+    VIEW_W = canvas.width / SCALE;
+    VIEW_H = canvas.height / SCALE;
     dirty = true;
 }
 
@@ -1740,28 +1753,43 @@ function deleteAllData() {
     dirty = true;
 }
 
-function drawSettings() {
+// One dialog shell for every modal: dim wash, panel, gold title rule.
+function drawModalShell(w, h, title) {
     var p = isPortrait();
-    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillStyle = 'rgba(2,8,18,0.78)';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-    var dlgW = p ? VIEW_W - 40 : 340;
-    var dlgH = Math.min(VIEW_H - 24, p ? 560 : 442);
-    var dlgX = Math.round((VIEW_W - dlgW) / 2);
-    var dlgY = Math.round((VIEW_H - dlgH) / 2);
-    drawPixelRoundRect(dlgX, dlgY, dlgW, dlgH, 4, COLOR_GOLD);
-    drawPixelRoundRect(dlgX + 3, dlgY + 3, dlgW - 6, dlgH - 6, 4, COLOR_BG_DARK);
-
-    ctx.font = 'bold ' + (p ? 14 : 11) + 'px ' + FONT;
+    var x = Math.round((VIEW_W - w) / 2);
+    var y = Math.round((VIEW_H - h) / 2);
+    drawPanel(x, y, w, h, { fill: C_NAVY, radius: 4 });
+    var titleH = p ? 34 : 28;
+    ctx.fillStyle = C_GOLD;
+    ctx.fillRect(x + 3, y + titleH - 2, w - 6, 2);
+    setFont(p ? 13 : 11);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = COLOR_GOLD;
-    ctx.fillText('SETTINGS', dlgX + dlgW / 2, dlgY + (p ? 26 : 22));
+    ctx.fillStyle = C_GOLD;
+    ctx.fillText(String(title).toUpperCase(), x + w / 2, y + titleH / 2);
+    return { x: x, y: y, titleH: titleH };
+}
 
-    var bw = dlgW - 40;
-    var bh = p ? 40 : 30;
-    var bx = dlgX + 20;
-    var by = dlgY + (p ? 56 : 46);
-    var gap = p ? 10 : 8;
+function drawSettings() {
+    var p = isPortrait();
+    var dlgW = p ? Math.min(VIEW_W - 40, 420) : 340;
+    var rowsN = 9;
+    var bhPre = p ? 38 : 29;
+    var gapPre = p ? 8 : 6;
+    var titleHPre = p ? 34 : 28;
+    // Size the panel to its contents so nothing can hang outside the border.
+    var dlgH = Math.min(VIEW_H - 16,
+        titleHPre + SP * 3 + rowsN * bhPre + (rowsN - 1) * gapPre + SP * 5);
+    var shell = drawModalShell(dlgW, dlgH, 'Settings');
+    var dlgX = shell.x, dlgY = shell.y;
+
+    var bw = dlgW - SP * 10;
+    var bh = bhPre;
+    var bx = dlgX + SP * 5;
+    var by = dlgY + shell.titleH + SP * 3;
+    var gap = gapPre;
 
     if (settingsConfirmDelete === 0) {
         drawButton(bx, by, bw, bh, 'Sound: ' + (soundOn ? 'ON' : 'OFF'), settingsFocus === 0);
@@ -1786,25 +1814,25 @@ function drawSettings() {
         drawButton(bx, by, bw, bh, 'How to Play', settingsFocus === 6);
         _settingsRects.tutorial = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap;
-        drawButton(bx, by, bw, bh, 'Delete All Data', settingsFocus === 7);
+        drawButton(bx, by, bw, bh, 'Delete All Data', settingsFocus === 7, '#5c2233');
         _settingsRects.del = { x: bx, y: by, w: bw, h: bh };
-        by += bh + gap + (p ? 6 : 4);
+        by += bh + gap;
         drawButton(bx, by, bw, bh, 'Close', settingsFocus === 8);
         _settingsRects.close = { x: bx, y: by, w: bw, h: bh };
     } else {
         // Confirmation
-        ctx.font = 'bold ' + (p ? 13 : 10) + 'px ' + FONT;
-        ctx.fillStyle = '#ff6666';
+        setFont(p ? 13 : 10);
+        ctx.fillStyle = C_RED;
         ctx.fillText(settingsConfirmDelete === 1 ? 'DELETE ALL DATA?' : '!! REALLY SURE !!',
             dlgX + dlgW / 2, dlgY + (p ? 80 : 65));
-        ctx.font = (p ? 9 : 7) + 'px ' + FONT;
-        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        setFont(tsMicro(), false);
+        ctx.fillStyle = C_TEXT_DIM;
         ctx.fillText('All saves, settings, and progress', dlgX + dlgW / 2, dlgY + (p ? 110 : 90));
         ctx.fillText('will be erased.', dlgX + dlgW / 2, dlgY + (p ? 124 : 102));
 
         var cby = dlgY + (p ? 160 : 130);
         var cbw = (bw - gap) / 2;
-        drawButton(bx, cby, cbw, bh, 'Delete', settingsFocus === 0);
+        drawButton(bx, cby, cbw, bh, 'Delete', settingsFocus === 0, '#5c2233');
         _settingsRects.confirmDel = { x: bx, y: cby, w: cbw, h: bh };
         drawButton(bx + cbw + gap, cby, cbw, bh, 'Cancel', settingsFocus === 1);
         _settingsRects.cancelDel = { x: bx + cbw + gap, y: cby, w: cbw, h: bh };
@@ -1822,27 +1850,9 @@ function closeTutorial() { tutorialVisible = false; markTutorialSeen(); sfxBlade
 
 function drawTutorial() {
     var p = isPortrait();
-    ctx.fillStyle = 'rgba(0,0,0,0.78)';
-    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-    var dlgW = p ? VIEW_W - 30 : 440;
-    var dlgH = Math.min(VIEW_H - 24, p ? 400 : 312);
-    var dlgX = Math.round((VIEW_W - dlgW) / 2);
-    var dlgY = Math.round((VIEW_H - dlgH) / 2);
-    drawPixelRoundRect(dlgX, dlgY, dlgW, dlgH, 4, COLOR_GOLD);
-    drawPixelRoundRect(dlgX + 3, dlgY + 3, dlgW - 6, dlgH - 6, 4, COLOR_BG_DARK);
 
-    ctx.font = 'bold ' + (p ? 14 : 11) + 'px ' + FONT;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = COLOR_GOLD;
-    ctx.fillText('HOW TO FENCE', dlgX + dlgW / 2, dlgY + (p ? 26 : 22));
-
-    var lineH = p ? 15 : 12;
-    var ly = dlgY + (p ? 54 : 44);
-    var leftX = dlgX + 20;
-
-    // ── Controls ──
-    ctx.font = 'bold ' + (p ? 9 : 7) + 'px ' + FONT;
+    // Build the content first so the panel can be sized to it. Fixed heights
+    // left a 74px hole above the button in landscape and clipped in portrait.
     var rows;
     if (_isTouchDevice) {
         rows = [
@@ -1859,24 +1869,6 @@ function drawTutorial() {
             ['\u2193',         'Block']
         ];
     }
-    for (var i = 0; i < rows.length; i++) {
-        ctx.textAlign = 'left'; ctx.fillStyle = COLOR_GOLD;
-        ctx.fillText(rows[i][0], leftX, ly);
-        ctx.fillStyle = '#fff';
-        ctx.fillText(rows[i][1], leftX + (p ? 130 : 92), ly);
-        ly += lineH;
-    }
-
-    // ── The one rule that matters ──
-    ly += p ? 12 : 9;
-    ctx.font = 'bold ' + (p ? 10 : 8) + 'px ' + FONT;
-    ctx.fillStyle = COLOR_GOLD;
-    ctx.fillText('THE ONE RULE', leftX, ly);
-    ly += p ? 16 : 13;
-
-    ctx.font = (p ? 9 : 7) + 'px ' + FONT;
-    ctx.fillStyle = '#fff';
-    ctx.textAlign = 'left';
     var rules;
     if (weapon().key === 'epee') {
         rules = [
@@ -1902,15 +1894,49 @@ function drawTutorial() {
             'Just follow the prompt on screen.'
         ];
     }
-    for (var ri = 0; ri < rules.length; ri++) {
-        if (rules[ri]) ctx.fillText(rules[ri], leftX, ly);
-        ly += p ? 13 : 10;
+
+    var lineH = p ? 15 : 12;
+    var ruleH = p ? 13 : 10;
+    var btnH = p ? 44 : 32;
+    var headGap = p ? 12 : 9;
+    var headH = p ? 16 : 13;
+
+    var contentH = rows.length * lineH + headGap + headH + rules.length * ruleH;
+    var dlgW = p ? Math.min(VIEW_W - 30, 440) : 440;
+    var dlgH = Math.min(VIEW_H - 16,
+        (p ? 34 : 28) + SP * 4 + contentH + SP * 5 + btnH + SP * 4);
+
+    var shell = drawModalShell(dlgW, dlgH, 'How to Fence');
+    var dlgX = shell.x, dlgY = shell.y;
+    var ly = dlgY + shell.titleH + SP * 4;
+    var leftX = dlgX + SP * 5;
+
+    setFont(tsMicro());
+    for (var i = 0; i < rows.length; i++) {
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = C_GOLD;
+        ctx.fillText(rows[i][0], leftX, ly);
+        ctx.fillStyle = C_TEXT;
+        ctx.fillText(rows[i][1], leftX + (p ? 130 : 92), ly);
+        ly += lineH;
     }
 
-    // Got it button
-    var btnH = p ? 44 : 32;
+    ly += headGap;
+    setFont(headH - (p ? 5 : 5));
+    ctx.fillStyle = C_GOLD;
+    ctx.fillText('THE ONE RULE', leftX, ly);
+    ly += headH;
+
+    setFont(tsMicro(), false);
+    ctx.fillStyle = C_TEXT;
+    for (var ri = 0; ri < rules.length; ri++) {
+        if (rules[ri]) ctx.fillText(rules[ri], leftX, ly);
+        ly += ruleH;
+    }
+
     var btnW = p ? 200 : 160;
-    var btnY = dlgY + dlgH - btnH - 14;
+    var btnY = dlgY + dlgH - btnH - SP * 4;
     drawButton(dlgX + dlgW / 2 - btnW / 2, btnY, btnW, btnH, 'Got It', true);
     _tutorialBtn = { x: dlgX + dlgW / 2 - btnW / 2, y: btnY, w: btnW, h: btnH };
 }
@@ -2894,6 +2920,266 @@ function stepTick(f, dt) {
         fxDust(pisteX(f.pos), 0, keys.advance ? (f.side === 1 ? 1 : -1) : (f.side === 1 ? -1 : 1), 2);
     }
 }
+// ── UI system ──────────────────────────────────────────────────────────────
+//
+// Every screen was drawing its own margins, its own text sizes and its own
+// borders, which is what made the game read as a set of debug screens rather
+// than one product. These are the shared tokens and components; screens should
+// compose them rather than calling fillRect directly.
+
+// Extended palette. The old one had a single mid blue doing every job, so
+// panels, cards and the background all sat on the same value and nothing had
+// depth.
+var C_NAVY_DEEP  = '#071a33';   // furthest back / vignette
+var C_NAVY       = '#0e2a4a';   // header bars, panel wells
+var C_NAVY_SOFT  = '#173a63';   // panel fill
+var C_BLUE       = '#1e4e8e';   // page background
+var C_BLUE_LIT   = '#2a5fa0';   // raised surface / button face
+var C_BLUE_EDGE  = '#4a86d8';   // top bevel highlight
+var C_STEEL      = '#3a78c8';
+var C_GOLD       = '#FFD700';
+var C_GOLD_DIM   = '#b8941c';
+var C_TEXT       = '#eef4ff';   // primary text (not pure white — less glare)
+var C_TEXT_DIM   = '#9db4d4';   // secondary text
+var C_TEXT_FAINT = '#6f8bb0';   // tertiary / units
+var C_RED        = '#e5484d';
+var C_GREEN      = '#46c46b';
+
+// ── Type scale ──
+// Four steps, and nothing else. Sizes are in VIEW units and scale a little on
+// portrait, where the logical viewport is wider relative to the content.
+function tsDisplay() { return isPortrait() ? 22 : 20; }  // screen titles
+function tsHeading() { return isPortrait() ? 12 : 10; }  // section headings
+function tsBody()    { return isPortrait() ? 10 : 8;  }  // labels, values
+function tsMicro()   { return isPortrait() ? 8  : 7;  }  // captions, hints
+
+// ── Spacing scale ── multiples of 4, so everything lands on the same grid.
+var SP = 4;
+function pad()    { return isPortrait() ? SP * 5 : SP * 4; }   // outer margin
+function gutter() { return SP * 3; }
+
+// Shared outer content box, so every screen agrees where the edges are.
+function contentX() { return SAFE_X + pad(); }
+function contentW() { return VIEW_W - 2 * (SAFE_X + pad()); }
+
+function setFont(size, bold) {
+    ctx.font = (bold === false ? '' : 'bold ') + Math.round(size) + 'px ' + FONT;
+}
+
+// ── Backdrop ───────────────────────────────────────────────────────────────
+//
+// One background for every menu screen: a vertical wash, a floor line, a huge
+// low-contrast crossed-blades watermark, and a vignette. Flat single-colour
+// fills were the main reason the menus looked unfinished.
+
+var _bgCache = null, _bgKey = '';
+
+function buildBackdrop(w, h) {
+    var c = document.createElement('canvas');
+    c.width = Math.max(1, Math.ceil(w));
+    c.height = Math.max(1, Math.ceil(h));
+    var g = c.getContext('2d');
+
+    // Vertical wash, dark at the top, lighter toward the floor.
+    var grd = g.createLinearGradient(0, 0, 0, h);
+    grd.addColorStop(0, '#12325c');
+    grd.addColorStop(0.55, C_BLUE);
+    grd.addColorStop(1, '#17406f');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, w, h);
+
+    // Watermark: two crossed blades. Drawn small and upscaled with smoothing
+    // off, so the diagonals stay chunky instead of anti-aliasing into a blur
+    // that fights the pixel art.
+    var SCALE_DOWN = 5;
+    var mw = Math.ceil(w / SCALE_DOWN), mh = Math.ceil(h / SCALE_DOWN);
+    var mc = document.createElement('canvas');
+    mc.width = mw; mc.height = mh;
+    var mg = mc.getContext('2d');
+    var cx = mw / 2, cy = mh * 0.5;
+    var len = Math.min(mw, mh) * 0.72;
+    mg.strokeStyle = '#ffffff';
+    mg.lineWidth = Math.max(1, Math.round(len * 0.05));
+    mg.beginPath();
+    mg.moveTo(cx - len * 0.70, cy - len * 0.48);
+    mg.lineTo(cx + len * 0.70, cy + len * 0.48);
+    mg.moveTo(cx + len * 0.70, cy - len * 0.48);
+    mg.lineTo(cx - len * 0.70, cy + len * 0.48);
+    mg.stroke();
+    g.save();
+    g.imageSmoothingEnabled = false;
+    g.globalAlpha = 0.05;
+    g.drawImage(mc, 0, 0, w, h);
+    g.restore();
+
+    // Fine scanline texture — one dark row every 4px, very low alpha.
+    g.globalAlpha = 0.045;
+    g.fillStyle = '#000814';
+    for (var y = 0; y < h; y += 4) g.fillRect(0, y, w, 1);
+    g.globalAlpha = 1;
+
+    // Vignette, painted as concentric edge bands (cheap, and it stays pixel-y).
+    var band = Math.round(Math.min(w, h) * 0.06);
+    for (var i = 0; i < band; i++) {
+        var a = 0.30 * Math.pow(1 - i / band, 2);
+        g.globalAlpha = a;
+        g.fillStyle = '#00060f';
+        g.fillRect(i, i, w - i * 2, 1);
+        g.fillRect(i, h - 1 - i, w - i * 2, 1);
+        g.fillRect(i, i, 1, h - i * 2);
+        g.fillRect(w - 1 - i, i, 1, h - i * 2);
+    }
+    g.globalAlpha = 1;
+    return c;
+}
+
+function drawBackdrop() {
+    var key = Math.round(VIEW_W) + 'x' + Math.round(VIEW_H);
+    if (!_bgCache || _bgKey !== key) {
+        _bgCache = buildBackdrop(VIEW_W, VIEW_H);
+        _bgKey = key;
+    }
+    ctx.drawImage(_bgCache, 0, 0);
+}
+
+// ── Panel ──────────────────────────────────────────────────────────────────
+//
+// A raised surface with a real bevel: light top edge, dark bottom edge, and a
+// soft drop shadow. Replaces the flat 2-3px pure-white outlines that made
+// every list and card look like a wireframe.
+
+function drawPanel(x, y, w, h, opts) {
+    opts = opts || {};
+    x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h);
+    var fill = opts.fill || C_NAVY_SOFT;
+    var r = opts.radius === undefined ? 3 : opts.radius;
+
+    if (opts.shadow !== false) {
+        ctx.globalAlpha = 0.30;
+        drawPixelRoundRect(x + 2, y + 3, w, h, r, '#00060f');
+        ctx.globalAlpha = 1;
+    }
+    drawPixelRoundRect(x, y, w, h, r, fill);
+    // Bevel: one light row inside the top, one dark row inside the bottom.
+    ctx.globalAlpha = opts.flat ? 0.10 : 0.22;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x + r, y + 1, w - r * 2, 1);
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = '#00060f';
+    ctx.fillRect(x + r, y + h - 2, w - r * 2, 1);
+    ctx.globalAlpha = 1;
+
+    if (opts.accent) {
+        ctx.fillStyle = opts.accent;
+        ctx.fillRect(x, y + r, 2, h - r * 2);
+    }
+    if (opts.selected) {
+        drawPixelRoundRect(x - 2, y - 2, w + 4, h + 4, r + 1, C_GOLD);
+        drawPixelRoundRect(x, y, w, h, r, fill);
+        ctx.globalAlpha = 0.22;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(x + r, y + 1, w - r * 2, 1);
+        ctx.globalAlpha = 1;
+    }
+}
+
+// ── Screen header ──────────────────────────────────────────────────────────
+//
+// One header for every screen: fixed height, title on the left, optional
+// right-hand chip, and a gold rule under it so the content has a clear top.
+
+function headerH() { return isPortrait() ? 46 : 36; }
+
+function drawHeader(title, rightChip) {
+    var h = headerH();
+    ctx.fillStyle = C_NAVY;
+    ctx.fillRect(0, 0, VIEW_W, h);
+    // Subtle top sheen so the bar is not a flat block
+    ctx.globalAlpha = 0.10;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, VIEW_W, 1);
+    ctx.globalAlpha = 1;
+    // Gold rule
+    ctx.fillStyle = C_GOLD;
+    ctx.fillRect(0, h - 2, VIEW_W, 2);
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = '#00060f';
+    ctx.fillRect(0, h, VIEW_W, 3);
+    ctx.globalAlpha = 1;
+
+    ctx.textBaseline = 'middle';
+    setFont(tsHeading() + 2);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = C_TEXT;
+    ctx.fillText(String(title).toUpperCase(), contentX(), Math.round((h - 2) / 2));
+
+    if (rightChip) drawChip(rightChip);
+    return h;
+}
+
+// Small right-aligned pill in the header, for context like the difficulty.
+function drawChip(text) {
+    var h = headerH();
+    setFont(tsMicro());
+    var tw = ctx.measureText(String(text).toUpperCase()).width;
+    var cw = tw + 14, ch = isPortrait() ? 18 : 15;
+    var cx = VIEW_W - SAFE_X - pad() - cw;
+    var cy = Math.round((h - 2) / 2 - ch / 2);
+    drawPixelRoundRect(cx, cy, cw, ch, 2, '#000c1c');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = C_GOLD;
+    ctx.fillText(String(text).toUpperCase(), cx + cw / 2, cy + ch / 2);
+}
+
+// ── Section heading ────────────────────────────────────────────────────────
+// A small caps label with a rule that runs to the end of its column.
+function drawSectionLabel(x, y, w, text) {
+    setFont(tsMicro());
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = C_TEXT_DIM;
+    ctx.fillText(String(text).toUpperCase(), x, y);
+    var tw = ctx.measureText(String(text).toUpperCase()).width;
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(x + tw + 8, y - 1, Math.max(0, w - tw - 8), 1);
+}
+
+// ── Stat tile ──────────────────────────────────────────────────────────────
+// Big number, small label. Used to give the Records screen a focal point
+// instead of two ragged columns of same-sized text.
+function drawStatTile(x, y, w, h, value, label, accent) {
+    drawPanel(x, y, w, h, { fill: C_NAVY, flat: true });
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    setFont(Math.min(h * 0.46, w * 0.42));
+    ctx.fillStyle = accent || C_GOLD;
+    ctx.fillText(String(value), x + w / 2, y + h * 0.40);
+    setFont(tsMicro());
+    ctx.fillStyle = C_TEXT_FAINT;
+    ctx.fillText(String(label).toUpperCase(), x + w / 2, y + h - Math.max(9, h * 0.22));
+}
+
+// ── Key/value row ──────────────────────────────────────────────────────────
+// Alternating row tint so long lists are readable without borders.
+function drawKeyValue(x, y, w, h, key, value, index) {
+    if (index % 2 === 0) {
+        ctx.globalAlpha = 0.07;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(x, y, w, h);
+        ctx.globalAlpha = 1;
+    }
+    setFont(tsBody(), false);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = C_TEXT_DIM;
+    ctx.fillText(String(key).toUpperCase(), x + 6, y + h / 2);
+    setFont(tsBody());
+    ctx.textAlign = 'right';
+    ctx.fillStyle = C_TEXT;
+    ctx.fillText(String(value), x + w - 6, y + h / 2);
+}
+
 // ── Drawing helpers ──
 var BAR_H = 24;
 var BAR_FONT = 12;
@@ -2919,20 +3205,48 @@ function drawPixelRoundRect(x, y, w, h, r, color) {
     }
 }
 
+// A raised key with a bevel, rather than a flat fill inside a fat white
+// outline. The old 2-3px pure-white border on every control was the loudest
+// thing on screen and made the menus read as a wireframe.
 function drawButton(x, y, w, h, label, primary, bgColor) {
-    var r = h >= 40 ? 5 : 3;
-    var bg = bgColor || COLOR_UI_BG;
-    var b = h >= 40 ? 3 : 2;
-    drawPixelRoundRect(x + b, y + b, w, h, r, 'rgba(0,0,0,0.35)');
-    drawPixelRoundRect(x, y, w, h, r, primary ? COLOR_GOLD : COLOR_WHITE);
-    drawPixelRoundRect(x + b, y + b, w - b * 2, h - b * 2, r, bg);
-    ctx.fillStyle = '#fff';
-    var btnFont = h >= 70 ? 18 : (h >= 40 ? 13 : (h >= 28 ? 10 : 8));
-    ctx.font = 'bold ' + btnFont + 'px ' + FONT;
+    x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h);
+    var r = h >= 40 ? 4 : 3;
+
+    // Drop shadow
+    ctx.globalAlpha = 0.35;
+    drawPixelRoundRect(x + 1, y + 3, w, h, r, '#00060f');
+    ctx.globalAlpha = 1;
+
+    // Focus ring is drawn behind the face and then covered, which leaves a
+    // clean 2px border without needing a cut-out.
+    if (primary) drawPixelRoundRect(x - 2, y - 2, w + 4, h + 4, r + 1, C_GOLD);
+
+    // Face
+    var face = bgColor || C_BLUE_LIT;
+    drawPixelRoundRect(x, y, w, h, r, face);
+
+    // Top light, bottom shade — the bevel
+    ctx.globalAlpha = 0.30;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x + r, y + 1, w - r * 2, 1);
+    ctx.fillRect(x + 1, y + r, 1, h - r * 2);
+    ctx.globalAlpha = 0.32;
+    ctx.fillStyle = '#00060f';
+    ctx.fillRect(x + r, y + h - 2, w - r * 2, 1);
+    ctx.fillRect(x + w - 2, y + r, 1, h - r * 2);
+    ctx.globalAlpha = 1;
+
+    var btnFont = h >= 70 ? 17 : (h >= 40 ? 12 : (h >= 28 ? 10 : 8));
+    setFont(btnFont);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    // Text shadow gives the label weight against the face colour.
+    ctx.fillStyle = 'rgba(0,6,15,0.45)';
+    ctx.fillText(label.toUpperCase(), x + w / 2, y + h / 2 + 2);
+    ctx.fillStyle = primary ? C_GOLD : C_TEXT;
     ctx.fillText(label.toUpperCase(), x + w / 2, y + h / 2 + 1);
 }
+
 
 function drawBar(left, center, right) {
     ctx.fillStyle = COLOR_BG_DARK;
@@ -3334,22 +3648,28 @@ function drawFencer(px, py, fencer, size, facing, pose, skinIdx, opts) {
 
 // Decorative piste illustration on the title screen — horizontal strip.
 function drawTitlePiste(cx, cy, w) {
-    // Decorative piste under the title fencer. Just a horizontal strip with
-    // gold center line and white en-garde marks.
-    var pisteH = 12;
-    var pisteY = cy - pisteH / 2;
-    ctx.fillStyle = COLOR_BG_LIGHT;
-    ctx.fillRect(cx - w / 2, pisteY, w, pisteH);
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(cx - w / 2, pisteY, w, 1);
-    ctx.fillRect(cx - w / 2, pisteY + pisteH - 1, w, 1);
-    // Center line (gold)
-    ctx.fillStyle = COLOR_GOLD;
-    ctx.fillRect(cx - 1, pisteY - 3, 2, pisteH + 6);
-    // En-garde marks (1/4 and 3/4)
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(cx - w / 4, pisteY - 2, 1, pisteH + 4);
-    ctx.fillRect(cx + w / 4, pisteY - 2, 1, pisteH + 4);
+    var pisteH = 11;
+    var y = Math.round(cy - pisteH / 2);
+    var x = Math.round(cx - w / 2);
+    // Shadow under the strip so it sits on something
+    ctx.globalAlpha = 0.30;
+    ctx.fillStyle = '#00060f';
+    ctx.fillRect(x, y + pisteH, w, 3);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = C_STEEL;
+    ctx.fillRect(x, y, w, pisteH);
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x, y, w, 3);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillRect(x, y, w, 1);
+    ctx.fillRect(x, y + pisteH - 1, w, 1);
+    ctx.fillStyle = C_GOLD;
+    ctx.fillRect(Math.round(cx) - 1, y - 3, 2, pisteH + 6);
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.fillRect(Math.round(cx - w * 0.22), y - 1, 1, pisteH + 2);
+    ctx.fillRect(Math.round(cx + w * 0.22), y - 1, 1, pisteH + 2);
 }
 
 var _titleTourneyBtn = { x: 0, y: 0, w: 0, h: 0 };
@@ -3363,86 +3683,92 @@ var _titleHelpBtn = { x: 0, y: 0, w: 0, h: 0 };
 
 function drawTitle() {
     var p = isPortrait();
-    // Fixed-size type so the bar doesn't grow with viewport
-    var titleFont = p ? 28 : 24;
-    var bylineFont = p ? 9 : 7;
-    var barH = p ? 76 : 58;
-    var btnH = p ? 50 : 34;
-    var btnW = p ? Math.min(380, VIEW_W - 60) : 220;
-    var btnGap = p ? 12 : 10;
-    // Footer button row (Settings, like Pixel Rugby's bottom-right placement)
-    var footerBtnW = p ? 110 : 90;
-    var footerBtnH = p ? 30 : 22;
-    var footerMargin = p ? 16 : 14;
-    var footerY = VIEW_H - footerBtnH - footerMargin;
+    drawBackdrop();
 
-    // Background fill
-    ctx.fillStyle = COLOR_BG;
-    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-
-    // Title banner
-    ctx.fillStyle = COLOR_BG_DARK;
+    // ── Masthead ──
+    var barH = p ? 84 : 66;
+    ctx.fillStyle = C_NAVY;
     ctx.fillRect(0, 0, VIEW_W, barH);
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.globalAlpha = 0.10;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, VIEW_W, 1);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = C_GOLD;
     ctx.fillRect(0, barH - 2, VIEW_W, 2);
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = '#00060f';
+    ctx.fillRect(0, barH, VIEW_W, 4);
+    ctx.globalAlpha = 1;
 
-    var titleY = Math.round(barH * 0.42);
-    ctx.font = 'bold ' + titleFont + 'px ' + FONT;
+    var titleFont = p ? 28 : 24;
+    var titleY = Math.round(barH * 0.40);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillText('PIXEL FENCING', VIEW_W / 2 + 3, titleY + 3);
-    ctx.fillStyle = '#fff';
+    setFont(titleFont);
+    // Layered title: deep shadow, gold underlayer, white face.
+    ctx.fillStyle = '#00060f';
+    ctx.fillText('PIXEL FENCING', VIEW_W / 2 + 3, titleY + 4);
+    ctx.fillStyle = C_GOLD_DIM;
+    ctx.fillText('PIXEL FENCING', VIEW_W / 2 + 1, titleY + 2);
+    ctx.fillStyle = C_TEXT;
     ctx.fillText('PIXEL FENCING', VIEW_W / 2, titleY);
-    ctx.font = bylineFont + 'px ' + FONT;
-    ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    ctx.fillText('BY JORGE GONZALEZ MEDINA', VIEW_W / 2, barH - (p ? 16 : 12));
 
-    // Five stacked main buttons. Difficulty lives in the Settings modal;
-    // Settings and Records sit in the footer row.
+    setFont(tsMicro(), false);
+    ctx.fillStyle = C_TEXT_FAINT;
+    ctx.fillText('BY JORGE GONZALEZ MEDINA', VIEW_W / 2, barH - (p ? 20 : 15));
+
+    // ── Layout ──
+    var btnH = p ? 46 : 34;
+    var btnW = p ? Math.min(360, contentW()) : 240;
+    var btnGap = SP * 2;
+    var footerBtnH = p ? 30 : 24;
+    var footerY = VIEW_H - footerBtnH - pad();
     var totalBtnH = btnH * 4 + btnGap * 3;
-    var btnTopY = footerY - totalBtnH - (p ? 44 : 32);
+    var btnTopY = footerY - totalBtnH - (p ? 40 : 30);
 
-    // Available middle space between banner and buttons. Sprite size is sized
-    // to fit ~70% of that height so it never collides with the banner.
-    var midSpaceTop = barH + 8;
-    var midSpaceBottom = btnTopY - 8;
-    var midSpaceH = midSpaceBottom - midSpaceTop;
-    var midSpaceCY = Math.round((midSpaceTop + midSpaceBottom) / 2);
+    // ── Hero fencer, standing on a lit strip ──
+    var heroTop = barH + SP * 3;
+    var heroBottom = btnTopY - SP * 3;
+    var heroH = heroBottom - heroTop;
+    if (heroH > 60) {
+        var spriteSize = Math.max(1.6, Math.min(p ? 4.6 : 3.4, heroH * 0.66 / (SPRITE_ROWS * 1.8)));
+        var spritePxH = SPRITE_ROWS * 1.8 * spriteSize;
+        var pisteCY = Math.round(heroTop + heroH * 0.5 + spritePxH * 0.34);
 
-    // drawFencer renders 19 logical px tall * 1.8 internal scale = 34.2 * size pixels.
-    // Cap so the sprite uses at most 70% (landscape) / 78% (portrait) of midSpaceH.
-    var fillRatio = p ? 0.78 : 0.70;
-    var maxSpriteH = midSpaceH * fillRatio;
-    var spriteSize = Math.max(1.5, Math.min(p ? 4.84 : 3.4, maxSpriteH / (20 * 1.8)));
-    var spritePxH = 20 * 1.8 * spriteSize;
-    // Place feet on the piste; piste sits a little below midSpaceCY so the
-    // sprite's BODY (not feet) ends up roughly at midSpaceCY.
-    var pisteCY = Math.round(midSpaceCY + spritePxH * 0.35);
-    drawTitlePiste(VIEW_W / 2, pisteCY, p ? Math.min(320, VIEW_W - 80) : 260);
+        // Spotlight pool behind the fencer
+        var poolW = Math.min(contentW(), 300);
+        var grd = ctx.createLinearGradient(0, heroTop, 0, pisteCY);
+        grd.addColorStop(0, 'rgba(255,246,214,0)');
+        grd.addColorStop(1, 'rgba(255,246,214,0.10)');
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.moveTo(VIEW_W / 2 - 18, heroTop);
+        ctx.lineTo(VIEW_W / 2 + 18, heroTop);
+        ctx.lineTo(VIEW_W / 2 + poolW / 2, pisteCY);
+        ctx.lineTo(VIEW_W / 2 - poolW / 2, pisteCY);
+        ctx.closePath();
+        ctx.fill();
 
-    // Title fencer — favorite if set, else Italy. Feet stand ON the piste centerline.
-    var fav = loadFavorite();
-    var titleFencer = null;
-    if (fav) titleFencer = fencerByCode(fav);
-    if (!titleFencer) {
-        for (var ti = 0; ti < FENCERS.length; ti++) {
-            if (FENCERS[ti].code === 'ITA') { titleFencer = FENCERS[ti]; break; }
+        drawTitlePiste(VIEW_W / 2, pisteCY, poolW);
+
+        var fav = loadFavorite();
+        var titleFencer = fav ? fencerByCode(fav) : null;
+        if (!titleFencer) {
+            for (var ti = 0; ti < FENCERS.length; ti++) {
+                if (FENCERS[ti].code === 'ITA') { titleFencer = FENCERS[ti]; break; }
+            }
+        }
+        if (!titleFencer && FENCERS.length) titleFencer = FENCERS[0];
+        if (titleFencer) {
+            var t = performance.now();
+            drawFencer(VIEW_W / 2, pisteCY, titleFencer, spriteSize, 'right', 'en-garde',
+                skinFor(titleFencer),
+                { bobFrame: Math.floor(t / 320),
+                  bladeExt: 0.55 + 0.45 * Math.sin(t / 380) });
         }
     }
-    if (!titleFencer && FENCERS.length) titleFencer = FENCERS[0];
-    if (titleFencer) {
-        // Idle animation: slow footwork bob + blade slowly extending and
-        // retracting (like a fencer testing distance / warming up).
-        var t = performance.now();
-        var titleBob = Math.floor(t / 320);
-        // Sine wave 0..1 over a 2.4-second cycle. Keep mostly extended (offset
-        // 0.55 + 0.45*sin) so the blade is visible most of the time.
-        var titleBladeExt = 0.55 + 0.45 * Math.sin(t / 380);
-        drawFencer(VIEW_W / 2, pisteCY, titleFencer, spriteSize, 'right', 'en-garde',
-            skinFor(titleFencer), { bobFrame: titleBob, bladeExt: titleBladeExt });
-    }
 
+    // ── Menu ──
     var bx = VIEW_W / 2 - btnW / 2;
     var rowY = btnTopY;
     drawButton(bx, rowY, btnW, btnH, 'Play', titleFocus === 0);
@@ -3455,26 +3781,26 @@ function drawTitle() {
     drawButton(bx, rowY, btnW, btnH, '2 Players', titleFocus === 3);
     _title2PBtn = { x: bx, y: rowY, w: btnW, h: btnH };
 
-    // Footer: pick your fencer, records, settings
-    var fw3 = Math.min(footerBtnW, Math.floor((VIEW_W - footerMargin * 2 - SAFE_X * 2 - 16) / 3));
-    var fx0 = footerMargin + SAFE_X;
-    drawButton(fx0, footerY, fw3, footerBtnH, 'My Fencer', titleFocus === 4);
-    _titlePracticeBtn = { x: fx0, y: footerY, w: fw3, h: footerBtnH };
-    var fx1 = Math.round(VIEW_W / 2 - fw3 / 2);
-    drawButton(fx1, footerY, fw3, footerBtnH, 'Records', titleFocus === 5);
-    _titleStatsBtn = { x: fx1, y: footerY, w: fw3, h: footerBtnH };
-    var setX = VIEW_W - fw3 - footerMargin - SAFE_X;
-    drawButton(setX, footerY, fw3, footerBtnH, 'Settings', titleFocus === 6);
-    _titleSettingsBtn = { x: setX, y: footerY, w: fw3, h: footerBtnH };
-    _titleRosterBtn = { x: 0, y: 0, w: 0, h: 0 };
-
-    // What Play will actually start, in plain words.
-    ctx.font = 'bold ' + (p ? 9 : 7) + 'px ' + FONT;
+    // ── Status line: what Play will start ──
+    setFont(tsMicro());
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillText(weapon().name + ' SWORD  ·  ' + _diffNames[difficulty],
-        VIEW_W / 2, footerY - (p ? 14 : 11));
+    ctx.fillStyle = C_TEXT_FAINT;
+    ctx.fillText(weapon().name + ' SWORD   ·   ' + _diffNames[difficulty],
+        VIEW_W / 2, footerY - (p ? 18 : 14));
+
+    // ── Footer ──
+    var fw3 = Math.floor((contentW() - SP * 4) / 3);
+    var fx0 = contentX();
+    drawButton(fx0, footerY, fw3, footerBtnH, 'My Fencer', titleFocus === 4);
+    _titlePracticeBtn = { x: fx0, y: footerY, w: fw3, h: footerBtnH };
+    var fx1 = fx0 + fw3 + SP * 2;
+    drawButton(fx1, footerY, fw3, footerBtnH, 'Records', titleFocus === 5);
+    _titleStatsBtn = { x: fx1, y: footerY, w: fw3, h: footerBtnH };
+    var fx2 = fx1 + fw3 + SP * 2;
+    drawButton(fx2, footerY, fw3, footerBtnH, 'Settings', titleFocus === 6);
+    _titleSettingsBtn = { x: fx2, y: footerY, w: fw3, h: footerBtnH };
+    _titleRosterBtn = { x: 0, y: 0, w: 0, h: 0 };
 }
 
 // loadTournament() parses JSON and rebuilds objects; calling it every frame
@@ -3494,18 +3820,16 @@ var _rosterCells = []; // {x, y, w, h, code} for hit-testing
 
 function drawRoster() {
     var p = isPortrait();
-    // Background
-    ctx.fillStyle = COLOR_BG;
-    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-    drawBar('', 'ROSTER', '');
+    drawBackdrop();
+    drawHeader('Roster');
 
     // Grid: 4 cols × 4 rows = 16
     var cols = 4, rows = 4;
-    var topPad = BAR_H + (p ? 24 : 16);
-    var bottomBtnH = p ? 44 : 30;
-    var bottomPad = bottomBtnH + (p ? 28 : 20);
+    var topPad = headerH() + pad();
+    var bottomBtnH = p ? 42 : 30;
+    var bottomPad = bottomBtnH + pad() * 2 + (p ? 16 : 12);
     var gridH = VIEW_H - topPad - bottomPad;
-    var gridW = Math.min(VIEW_W - 24, p ? VIEW_W - 24 : 480);
+    var gridW = Math.min(contentW(), p ? contentW() : 480);
     var gridX = Math.round((VIEW_W - gridW) / 2);
     var cellW = Math.floor(gridW / cols);
     var cellH = Math.floor(gridH / rows);
@@ -3524,18 +3848,21 @@ function drawRoster() {
         var cardW = cellW - 8;
         var cardH = cellH - 6;
         var rosterFocused = (rosterFocusIdx === i);
-        drawPixelRoundRect(cardX, cardY, cardW, cardH, 3, rosterFocused ? COLOR_GOLD : COLOR_BG_DARK);
-        drawPixelRoundRect(cardX + 1, cardY + 1, cardW - 2, cardH - 2, 3, COLOR_BG_LIGHT);
+        drawPanel(cardX, cardY, cardW, cardH, {
+            fill: rosterFocused ? '#20456f' : C_NAVY_SOFT,
+            selected: rosterFocused
+        });
 
         // Flag chip in top-left
-        var flagW = p ? 16 : 13;
-        var flagH = p ? 11 : 9;
+        var flagW = p ? 22 : 18;
+        var flagH = Math.round(flagW * 0.66);
         drawFlag(cardX + 4, cardY + 4, flagW, flagH, f.code);
 
         // Sprite — feet sit a bit above the label
         var labelH = p ? 22 : 18;
         var feetY = cardY + cardH - labelH - 4;
-        var spriteSize = Math.max(1.3, Math.min(2.6, (cellH - labelH - 22) / 22));
+        var spriteSize = Math.max(0.75, Math.min(2.4,
+            (cardH - labelH - 6) / (SPRITE_ROWS * 1.8)));
         var pose = rosterFlipped[f.code] ? 'lunge' : 'en-garde';
         drawFencer(cx, feetY, f, spriteSize, 'right', pose, skinFor(f));
 
@@ -3719,7 +4046,7 @@ function fencerPose(f) {
 
 // ── Scoreboard ──
 
-function scoreboardH() { return isPortrait() ? 52 : 42; }
+function scoreboardH() { return isPortrait() ? 58 : 48; }
 
 function fmtClock(ms) {
     var t = Math.max(0, Math.ceil(ms / 1000));
@@ -3780,26 +4107,32 @@ function drawScoreRibbon() {
     ctx.fillStyle = subCol;
     ctx.fillText(sub, VIEW_W / 2, midY + (p ? 11 : 9));
 
-    // ── Scoring lights ──
-    // The single most iconic image in the sport, and it was missing.
+    // ── Scoring lights + stamina ──
+    // The lamps are the sport's signature image. The stamina bars now span the
+    // gap to the centre instead of being capped at 120px and leaving half the
+    // ribbon as empty navy.
     var lampW = p ? 26 : 22, lampH = p ? 12 : 10;
-    var lampY = h - lampH - 3;
-    drawLamp(SAFE_X + 8, lampY, lampW, lampH, '#ff4444', fxLightL > 0);
-    drawLamp(VIEW_W - SAFE_X - 8 - lampW, lampY, lampW, lampH, '#44ff77', fxLightR > 0);
+    var lampY = h - lampH - 4;
+    var edge = SAFE_X + pad() - SP;
+    drawLamp(edge, lampY, lampW, lampH, '#ff4444', fxLightL > 0);
+    drawLamp(VIEW_W - edge - lampW, lampY, lampW, lampH, '#44ff77', fxLightR > 0);
 
-    // ── Stamina bars ──
-    var barW = Math.min(120, VIEW_W / 2 - lampW - 70);
-    drawStaminaBar(SAFE_X + 14 + lampW, lampY + 1, barW, lampH - 2, bp1, false);
-    drawStaminaBar(VIEW_W - SAFE_X - 14 - lampW - barW, lampY + 1, barW, lampH - 2, bp2, true);
+    var barGap = SP * 2;
+    var centreGap = p ? 70 : 84;   // room for the clock block above
+    var barW = Math.max(40, VIEW_W / 2 - centreGap / 2 - edge - lampW - barGap);
+    drawStaminaBar(edge + lampW + barGap, lampY + 1, barW, lampH - 2, bp1, false);
+    drawStaminaBar(VIEW_W - edge - lampW - barGap - barW, lampY + 1, barW, lampH - 2, bp2, true);
 }
 
 function drawScoreDigit(f, x, y, size, align) {
     // Pops on increment so a touch registers even in peripheral vision.
     var pop = f.scorePop > 0 ? (f.scorePop / 600) : 0;
     var sz = Math.round(size * (1 + pop * 0.5));
-    ctx.font = 'bold ' + sz + 'px ' + FONT;
+    setFont(sz);
     ctx.textAlign = align;
-    ctx.fillStyle = pop > 0 ? '#fff' : COLOR_GOLD;
+    ctx.fillStyle = 'rgba(0,6,15,0.5)';
+    ctx.fillText(String(f.touches), x + 1, y + 2);
+    ctx.fillStyle = pop > 0 ? C_GOLD : C_TEXT;
     ctx.fillText(String(f.touches), x, y);
 }
 
@@ -4132,8 +4465,8 @@ function drawBoutControlsHint(yBottom) {
     }
     // The fake is an advanced move; don't put it in front of a new player.
     ctx.fillText(difficulty <= D_EASY
-        ? '← → MOVE      ↑ ATTACK      ↓ BLOCK      ESC QUIT'
-        : '← → MOVE   ↑ ATTACK   ↑↑ FAKE   ↓ BLOCK   ESC QUIT',
+        ? '← → MOVE      ↑ ATTACK      ↓ BLOCK'
+        : '← → MOVE      ↑ ATTACK      ↑↑ FAKE      ↓ BLOCK',
         cx, yBottom);
 }
 
@@ -4504,12 +4837,18 @@ function drawBout() {
     fxDrawTrails();
     fxDrawParticles();
 
-    drawPriorityIndicator(pisteY);
-    drawPisteWarning(pisteY);
+    // Only while the phrase is live — during a halt the call banner already
+    // explains what happened, and two overlapping labels read as a glitch.
+    if (state === S_BOUT_PLAY) {
+        drawPriorityIndicator(pisteY);
+        drawPisteWarning(pisteY);
+    }
     drawScoreRibbon();
     drawBoutMessage(pisteY);
-    drawBoutControlsHint(VIEW_H - 10);
-    if (state !== S_BOUT_RESULT) drawBoutQuit();
+    if (state !== S_BOUT_RESULT) {
+        drawBoutControlsHint(VIEW_H - 10);
+        drawBoutQuit();
+    }
 
     fxDrawFlash();
 
@@ -4517,48 +4856,68 @@ function drawBout() {
 }
 
 function drawBoutResultOverlay(p) {
-    ctx.fillStyle = 'rgba(0,0,0,0.72)';
+    ctx.fillStyle = 'rgba(2,8,18,0.74)';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     drawConfetti();
 
     var playerWon = bp1.touches > bp2.touches;
+    var canRematch = (boutContext !== 'tournament');
+    var btnH = p ? 42 : 32;
+    var btnW = p ? 220 : 180;
+    var gap = SP * 2;
+
+    // Panel sized to its contents.
+    var panelW = Math.min(contentW(), p ? 340 : 300);
+    var bodyH = (p ? 30 : 24) + (p ? 16 : 13) + (p ? 40 : 34) + (p ? 16 : 13);
+    var panelH = SP * 5 + bodyH + gap + btnH * (canRematch ? 2 : 1)
+               + (canRematch ? gap : 0) + SP * 4;
+    var px = Math.round(VIEW_W / 2 - panelW / 2);
+    // Sit above the fencers where possible, so the result never covers them.
+    var py = Math.round(Math.min(VIEW_H / 2 - panelH / 2,
+        Math.max(headerH() + SP * 2, _pisteYCenter - panelH - SP * 12)));
+    drawPanel(px, py, panelW, panelH, { fill: C_NAVY, radius: 4 });
+    ctx.fillStyle = playerWon ? C_GOLD : C_RED;
+    ctx.fillRect(px + 3, py + 3, panelW - 6, 2);
+
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold ' + (p ? 20 : 18) + 'px ' + FONT;
-    ctx.fillStyle = playerWon ? COLOR_GOLD : '#ff8888';
-    ctx.fillText(playerWon ? 'VICTORY' : 'DEFEAT', VIEW_W / 2, VIEW_H / 2 - 74);
+    var y = py + SP * 4;
 
-    ctx.font = 'bold ' + (p ? 11 : 10) + 'px ' + FONT;
-    ctx.fillStyle = '#fff';
-    ctx.fillText(boutMsg, VIEW_W / 2, VIEW_H / 2 - 52);
+    setFont(p ? 22 : 18);
+    ctx.fillStyle = playerWon ? C_GOLD : C_RED;
+    ctx.fillText(playerWon ? 'VICTORY' : 'DEFEAT', VIEW_W / 2, y + (p ? 12 : 10));
+    y += (p ? 30 : 24);
 
-    ctx.font = 'bold ' + (p ? 30 : 26) + 'px ' + FONT;
-    ctx.fillStyle = '#fff';
-    ctx.fillText(bp1.touches + ' - ' + bp2.touches, VIEW_W / 2, VIEW_H / 2 - 20);
+    setFont(tsMicro());
+    ctx.fillStyle = C_TEXT_DIM;
+    ctx.fillText(boutMsg, VIEW_W / 2, y + (p ? 8 : 6));
+    y += (p ? 16 : 13);
 
-    // A small phrase breakdown, so the result says something about how it went.
-    ctx.font = (p ? 8 : 7) + 'px ' + FONT;
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    setFont(p ? 30 : 26);
+    ctx.fillStyle = C_TEXT;
+    ctx.fillText(bp1.touches + ' - ' + bp2.touches, VIEW_W / 2, y + (p ? 20 : 17));
+    y += (p ? 40 : 34);
+
+    setFont(tsMicro());
+    ctx.fillStyle = C_TEXT_FAINT;
     ctx.fillText(weapon().name + '  ·  ' + bp1.fencer.name.toUpperCase() +
-        ' vs ' + bp2.fencer.name.toUpperCase(), VIEW_W / 2, VIEW_H / 2 + 6);
+        ' VS ' + bp2.fencer.name.toUpperCase(), VIEW_W / 2, y + (p ? 8 : 6));
+    y += (p ? 16 : 13) + gap;
 
-    var btnW = p ? 200 : 170;
-    var btnH = p ? 42 : 32;
-    var gap = 8;
-    var canRematch = (boutContext !== 'tournament');
-    var by = Math.round(VIEW_H / 2 + 26);
+    var bx = Math.round(VIEW_W / 2 - btnW / 2);
     if (canRematch) {
-        drawButton(VIEW_W / 2 - btnW / 2, by, btnW, btnH, 'Rematch', boutResultFocus === 0);
-        _boutRematchBtn = { x: VIEW_W / 2 - btnW / 2, y: by, w: btnW, h: btnH };
-        by += btnH + gap;
+        drawButton(bx, y, btnW, btnH, 'Rematch', boutResultFocus === 0);
+        _boutRematchBtn = { x: bx, y: y, w: btnW, h: btnH };
+        y += btnH + gap;
     } else {
         _boutRematchBtn = { x: 0, y: 0, w: 0, h: 0 };
     }
-    drawButton(VIEW_W / 2 - btnW / 2, by, btnW, btnH,
+    drawButton(bx, y, btnW, btnH,
         boutContext === 'tournament' ? 'Continue' : 'Back to Title',
         canRematch ? boutResultFocus === 1 : true);
-    _boutResultBtn = { x: VIEW_W / 2 - btnW / 2, y: by, w: btnW, h: btnH };
+    _boutResultBtn = { x: bx, y: y, w: btnW, h: btnH };
 }
+
 var _boutResultBtn = { x: 0, y: 0, w: 0, h: 0 };
 var _boutRematchBtn = { x: 0, y: 0, w: 0, h: 0 };
 var boutResultFocus = 0;
@@ -4586,99 +4945,122 @@ function pct(a, b) {
 
 function drawStatsScreen() {
     var p = isPortrait();
-    ctx.fillStyle = COLOR_BG;
-    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-    drawBar('RECORDS', '', '');
-
+    drawBackdrop();
+    var top = drawHeader('Records') + pad();
     var s = stats || defaultStats();
-    var top = BAR_H + (p ? 18 : 12);
-    var colGap = 16;
-    var margin = SAFE_X + (p ? 18 : 26);
-    var colW = (VIEW_W - margin * 2 - colGap) / 2;
-    var lh = p ? 16 : 13;
-    var fs = p ? 9 : 8;
+    var x = contentX(), w = contentW();
 
-    function section(x, y, title) {
-        ctx.font = 'bold ' + fs + 'px ' + FONT;
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = COLOR_GOLD;
-        ctx.fillText(title, x, y);
-        ctx.fillStyle = 'rgba(255,255,255,0.18)';
-        ctx.fillRect(x, y + Math.round(lh * 0.45), colW, 1);
-        return y + lh;
+    // ── Headline tiles ──
+    // The old screen was two ragged columns of same-size text with nothing to
+    // look at first. These three carry the story.
+    var tileH = p ? 74 : 62;
+    var tileGap = SP * 2;
+    var tileW = Math.floor((w - tileGap * 2) / 3);
+    var diff = s.touchesFor - s.touchesAgainst;
+    drawStatTile(x, top, tileW, tileH, s.wins + '-' + s.losses, 'Win / Loss');
+    drawStatTile(x + tileW + tileGap, top, tileW, tileH,
+        pct(s.wins, s.losses), 'Win Rate');
+    drawStatTile(x + (tileW + tileGap) * 2, top, tileW, tileH,
+        (diff > 0 ? '+' : '') + diff, 'Point Diff',
+        diff > 0 ? C_GREEN : (diff < 0 ? C_RED : C_GOLD));
+    var y = top + tileH + pad();
+
+    // ── Two detail panels ──
+    var colGap = SP * 3;
+    var colW = p ? w : Math.floor((w - colGap) / 2);
+    var panelPad = SP * 2;
+    var headH = p ? 16 : 13;
+
+    // Row height adapts to the space left over, so portrait stops finishing a
+    // third of the way down the screen with a wall of empty blue under it.
+    var rowH;
+    if (p) {
+        var btnHp = 40;
+        var availRows = VIEW_H - (top + tileH + pad()) - (btnHp + pad())
+                      - (headH + panelPad * 2 + colGap) * 3 - 22;
+        rowH = Math.max(16, Math.min(30, Math.floor(availRows / 13)));
+    } else {
+        rowH = 14;
     }
-    function row(x, y, k, v) {
-        ctx.font = fs + 'px ' + FONT;
-        ctx.textAlign = 'left';
-        ctx.fillStyle = 'rgba(255,255,255,0.72)';
-        ctx.fillText(k, x, y);
-        ctx.textAlign = 'right';
-        ctx.fillStyle = '#fff';
-        ctx.fillText(String(v), x + colW, y);
-        return y + lh;
+
+    function panelOf(px, py, title, rows) {
+        var ph = panelPad * 2 + headH + rows.length * rowH;
+        drawPanel(px, py, colW, ph, { fill: C_NAVY_SOFT });
+        drawSectionLabel(px + panelPad, py + panelPad + 4, colW - panelPad * 2, title);
+        var ry = py + panelPad + headH;
+        for (var i = 0; i < rows.length; i++) {
+            drawKeyValue(px + panelPad, ry, colW - panelPad * 2, rowH,
+                rows[i][0], rows[i][1], i);
+            ry += rowH;
+        }
+        return ph;
     }
 
-    // ── Left column: career ──
-    var lx = margin, ly = top;
-    ly = section(lx, ly, 'CAREER');
-    ly = row(lx, ly, 'BOUTS', s.bouts);
-    ly = row(lx, ly, 'WON', s.wins);
-    ly = row(lx, ly, 'LOST', s.losses);
-    ly = row(lx, ly, 'WIN RATE', pct(s.wins, s.losses));
-    ly = row(lx, ly, 'BEST STREAK', s.bestStreak);
-    ly = row(lx, ly, 'CURRENT STREAK', s.curStreak);
-    ly += 4;
-    ly = section(lx, ly, 'POINTS');
-    ly = row(lx, ly, 'SCORED', s.touchesFor);
-    ly = row(lx, ly, 'CONCEDED', s.touchesAgainst);
-    ly = row(lx, ly, 'DIFFERENCE',
-        (s.touchesFor - s.touchesAgainst > 0 ? '+' : '') + (s.touchesFor - s.touchesAgainst));
+    var leftRows = [
+        ['Bouts', s.bouts],
+        ['Points scored', s.touchesFor],
+        ['Points against', s.touchesAgainst],
+        ['Best streak', s.bestStreak],
+        ['Current streak', s.curStreak]
+    ];
+    var rightRows = [
+        ['Blocks', s.parries],
+        ['Counter hits', s.ripostes],
+        ['Fakes that worked', s.feints],
+        ['Tournaments', s.tournaments],
+        ['Titles won', s.titles]
+    ];
 
-    // ── Right column: technique + weapons ──
-    var rx = margin + colW + colGap, ry = top;
-    ry = section(rx, ry, 'TECHNIQUE');
-    ry = row(rx, ry, 'BLOCKS', s.parries);
-    ry = row(rx, ry, 'COUNTER HITS', s.ripostes);
-    ry = row(rx, ry, 'FAKES THAT WORKED', s.feints);
-    ry = row(rx, ry, 'BOTH-HIT POINTS', s.doubles);
-    ry += 4;
-    ry = section(rx, ry, 'BY SWORD');
+    var h1 = panelOf(x, y, 'Career', leftRows);
+    var h2;
+    if (p) {
+        h2 = panelOf(x, y + h1 + colGap, 'Technique', rightRows);
+        y += h1 + colGap + h2 + colGap;
+    } else {
+        h2 = panelOf(x + colW + colGap, y, 'Technique', rightRows);
+        y += Math.max(h1, h2) + colGap;
+    }
+
+    // ── By sword ──
+    var swordH = panelPad * 2 + headH + rowH * WEAPON_ORDER.length;
+    drawPanel(x, y, w, swordH, { fill: C_NAVY_SOFT });
+    drawSectionLabel(x + panelPad, y + panelPad + 4, w - panelPad * 2, 'By sword');
+    var sy = y + panelPad + headH;
     for (var i = 0; i < WEAPON_ORDER.length; i++) {
         var wk = WEAPON_ORDER[i];
         var bw = (s.byWeapon && s.byWeapon[wk]) || { w: 0, l: 0 };
-        ry = row(rx, ry, WEAPONS[wk].name, bw.w + 'W ' + bw.l + 'L');
+        drawKeyValue(x + panelPad, sy, w - panelPad * 2, rowH,
+            WEAPONS[wk].name + '  (' + WEAPONS[wk].realName + ')',
+            bw.w + 'W  ' + bw.l + 'L', i);
+        sy += rowH;
     }
-    ry += 4;
-    ry = section(rx, ry, 'TOURNAMENTS');
-    ry = row(rx, ry, 'ENTERED', s.tournaments);
-    ry = row(rx, ry, 'FINALS', s.finals);
-    ry = row(rx, ry, 'TITLES WON', s.titles);
+    y += swordH + colGap;
 
-    // ── Most-used country ──
+    // Most-fenced country, as a caption rather than an orphaned line.
     var best = null, bestN = 0;
     for (var code in s.byCountry) {
         var c = s.byCountry[code];
-        var n = c.w + c.l;
-        if (n > bestN) { bestN = n; best = code; }
+        if (c.w + c.l > bestN) { bestN = c.w + c.l; best = code; }
     }
     if (best) {
         var f = fencerByCode(best);
-        ctx.font = fs + 'px ' + FONT;
+        setFont(tsMicro());
         ctx.textAlign = 'center';
-        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = C_TEXT_FAINT;
         ctx.fillText('MOST FENCED: ' + (f ? f.name.toUpperCase() : best) +
             '  (' + s.byCountry[best].w + 'W ' + s.byCountry[best].l + 'L)',
-            VIEW_W / 2, Math.max(ly, ry) + lh);
+            VIEW_W / 2, y + 6);
     }
 
-    var btnH = p ? 42 : 30;
+    // ── Footer ──
+    var btnH = p ? 40 : 30;
     var btnW = p ? 150 : 120;
-    var btnY = VIEW_H - btnH - (p ? 18 : 12);
-    drawButton(SAFE_X + (p ? 18 : 26), btnY, btnW, btnH, 'Back', statsFocus === 0);
-    _statsBackBtn = { x: SAFE_X + (p ? 18 : 26), y: btnY, w: btnW, h: btnH };
-    var rX = VIEW_W - btnW - SAFE_X - (p ? 18 : 26);
-    drawButton(rX, btnY, btnW, btnH, 'Reset', statsFocus === 1);
+    var btnY = VIEW_H - btnH - pad();
+    drawButton(x, btnY, btnW, btnH, 'Back', statsFocus === 0);
+    _statsBackBtn = { x: x, y: btnY, w: btnW, h: btnH };
+    var rX = x + w - btnW;
+    drawButton(rX, btnY, btnW, btnH, 'Reset', statsFocus === 1, '#5c2233');
     _statsResetBtn = { x: rX, y: btnY, w: btnW, h: btnH };
 }
 
@@ -4750,20 +5132,21 @@ var fs2pFirst = null;
 
 function drawFencerSelect() {
     var p = isPortrait();
-    ctx.fillStyle = COLOR_BG;
-    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    drawBackdrop();
     var title = (fs2pStage === 1) ? 'PLAYER 1 — PICK'
               : (fs2pStage === 2) ? 'PLAYER 2 — PICK'
               : 'PICK YOUR FENCER';
-    drawBar(title, '', _diffNames[difficulty]);
+    var hdr = drawHeader(title, _diffNames[difficulty]);
 
     var cols = 4, rows = 4;
     var wpnRowH = p ? 30 : 24;
-    var topPad = BAR_H + wpnRowH + (p ? 30 : 24);
-    var bottomBtnH = p ? 44 : 30;
-    var bottomPad = bottomBtnH + (p ? 56 : 44);
+    var topPad = hdr + wpnRowH + (p ? 24 : 18);
+    var bottomBtnH = p ? 42 : 30;
+    var infoPanelH = p ? 30 : 24;
+    // Grid must clear the info caption and the footer, not just the footer.
+    var bottomPad = bottomBtnH + infoPanelH + pad() + SP * 2;
     var gridH = VIEW_H - topPad - bottomPad;
-    var gridW = Math.min(VIEW_W - 24, p ? VIEW_W - 24 : 480);
+    var gridW = Math.min(contentW(), p ? contentW() : 480);
     var gridX = Math.round((VIEW_W - gridW) / 2);
     var cellW = Math.floor(gridW / cols);
     var cellH = Math.floor(gridH / rows);
@@ -4778,32 +5161,37 @@ function drawFencerSelect() {
         var cardW = cellW - 8;
         var cardH = cellH - 6;
         var highlighted = (f.code === fsHighlightCode);
-        // Card border
-        var borderColor = highlighted ? COLOR_GOLD : COLOR_BG_DARK;
-        drawPixelRoundRect(cardX, cardY, cardW, cardH, 3, borderColor);
-        drawPixelRoundRect(cardX + 1, cardY + 1, cardW - 2, cardH - 2, 3, COLOR_BG_LIGHT);
+        drawPanel(cardX, cardY, cardW, cardH, {
+            fill: highlighted ? '#20456f' : C_NAVY_SOFT,
+            selected: highlighted
+        });
 
         // Flag chip top-left
-        var flagW = p ? 16 : 13;
-        var flagH = p ? 11 : 9;
+        var flagW = p ? 22 : 18;
+        var flagH = Math.round(flagW * 0.66);
         drawFlag(cardX + 4, cardY + 4, flagW, flagH, f.code);
 
-        var labelH = p ? 14 : 11;
-        var feetY = cardY + cardH - labelH - 6;
-        var spriteSize = Math.max(1.4, Math.min(2.8, (cellH - labelH - 24) / 22));
+        var labelH = p ? 24 : 19;
+        var feetY = cardY + cardH - labelH - 4;
+        var spriteSize = Math.max(0.75, Math.min(2.4,
+            (cardH - labelH - 6) / (SPRITE_ROWS * 1.8)));
         drawFencer(cardX + cardW / 2, feetY, f, spriteSize, 'right', 'en-garde', skinFor(f));
 
-        ctx.font = 'bold ' + (p ? 10 : 8) + 'px ' + FONT;
+        setFont(p ? 10 : 8);
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle = highlighted ? COLOR_GOLD : '#fff';
-        ctx.fillText(f.code, cardX + cardW / 2, cardY + cardH - labelH / 2 - 1);
+        ctx.fillStyle = highlighted ? C_GOLD : C_TEXT;
+        ctx.fillText(f.code, cardX + cardW / 2, cardY + cardH - labelH + (p ? 8 : 6));
 
-        // Strength stars on top-right
-        ctx.font = (p ? 7 : 6) + 'px ' + FONT;
-        ctx.textAlign = 'right';
-        ctx.fillStyle = 'rgba(255,255,255,0.85)';
-        ctx.fillText(f.strength + '*', cardX + cardW - 4, cardY + 9);
+        // Skill as pips under the code, clear of the blade.
+        var pipW = 4, pipGap = 2, pipN = 5;
+        var pipTotal = pipN * pipW + (pipN - 1) * pipGap;
+        var pipX = Math.round(cardX + cardW / 2 - pipTotal / 2);
+        var pipY = cardY + cardH - (p ? 10 : 8);
+        for (var sp = 0; sp < pipN; sp++) {
+            ctx.fillStyle = (sp < f.strength) ? C_GOLD : 'rgba(255,255,255,0.16)';
+            ctx.fillRect(pipX + sp * (pipW + pipGap), pipY, pipW, 3);
+        }
 
         _fsCells.push({ x: cardX, y: cardY, w: cardW, h: cardH, code: f.code });
     }
@@ -4811,52 +5199,55 @@ function drawFencerSelect() {
     // ── Weapon selector ──
     // Sits above the grid because it changes how the whole bout plays, not
     // just who you look like.
-    var wy = BAR_H + (p ? 16 : 13);
-    var wBtnW = Math.min(110, Math.floor((gridW - 16) / 3));
-    var wStartX = Math.round(VIEW_W / 2 - (wBtnW * 3 + 12) / 2);
+    var wy = headerH() + (p ? 18 : 14);
+    var wGap = SP * 2;
+    var wBtnW = Math.floor((gridW - wGap * 2) / 3);
+    var wStartX = gridX;
     _fsWeaponBtns = [];
     ctx.font = 'bold ' + (p ? 8 : 7) + 'px ' + FONT;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillText('SWORD', VIEW_W / 2, wy - (p ? 7 : 6));
+    ctx.fillStyle = C_TEXT_FAINT;
+    ctx.fillText('SWORD', VIEW_W / 2, wy - (p ? 9 : 7));
     for (var wi = 0; wi < WEAPON_ORDER.length; wi++) {
         var wk = WEAPON_ORDER[wi];
-        var wx = wStartX + wi * (wBtnW + 6);
+        var wx = wStartX + wi * (wBtnW + wGap);
         var sel = (wk === weaponKey);
         drawButton(wx, wy, wBtnW, wpnRowH - 6, WEAPONS[wk].name, sel);
         // Keep the real fencing name visible, just not as the headline.
         ctx.font = (p ? 6 : 5) + 'px ' + FONT;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle = sel ? COLOR_GOLD : 'rgba(255,255,255,0.4)';
+        ctx.fillStyle = sel ? C_GOLD : C_TEXT_FAINT;
         ctx.fillText(WEAPONS[wk].realName, wx + wBtnW / 2, wy + wpnRowH - 1);
         _fsWeaponBtns.push({ x: wx, y: wy, w: wBtnW, h: wpnRowH - 6, key: wk });
     }
 
     // What the highlighted fencer and weapon actually mean.
-    ctx.font = (p ? 8 : 7) + 'px ' + FONT;
+    var infoH = infoPanelH;
+    var infoY = VIEW_H - bottomBtnH - pad() - infoH;
+    setFont(tsMicro());
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(255,255,255,0.65)';
-    var infoY = VIEW_H - bottomBtnH - (p ? 26 : 20);
-    ctx.fillText(weapon().blurb, VIEW_W / 2, infoY - (p ? 11 : 9));
     var hf = fencerByCode(fsHighlightCode);
     if (hf) {
-        ctx.fillStyle = COLOR_GOLD;
-        ctx.fillText(hf.name.toUpperCase() + '  ·  ' + styleNameFor(hf) +
-            '  ·  SKILL ' + hf.strength + '/5', VIEW_W / 2, infoY);
+        ctx.fillStyle = C_GOLD;
+        ctx.fillText(hf.name.toUpperCase() + '   ·   ' + styleNameFor(hf) +
+            '   ·   SKILL ' + hf.strength + '/5', VIEW_W / 2, infoY + infoH * 0.28);
     }
+    ctx.fillStyle = C_TEXT_FAINT;
+    ctx.fillText(weapon().blurb, VIEW_W / 2, infoY + infoH * 0.76);
 
     // Footer: Back + Confirm
-    var btnY = VIEW_H - bottomBtnH - 8;
-    var btnW = p ? 140 : 110;
-    drawButton(SAFE_X + 12, btnY, btnW, bottomBtnH, 'Back', fsFocusIdx === 16);
-    _fsBackBtn = { x: SAFE_X + 12, y: btnY, w: btnW, h: bottomBtnH };
+    var btnY = VIEW_H - bottomBtnH - pad();
+    var btnW = p ? 140 : 115;
+    drawButton(contentX(), btnY, btnW, bottomBtnH, 'Back', fsFocusIdx === 16);
+    _fsBackBtn = { x: contentX(), y: btnY, w: btnW, h: bottomBtnH };
     var confirmEnabled = !!fsHighlightCode;
-    drawButton(VIEW_W - SAFE_X - btnW - 12, btnY, btnW, bottomBtnH,
+    var cX = contentX() + contentW() - btnW;
+    drawButton(cX, btnY, btnW, bottomBtnH,
         confirmEnabled ? 'Start' : 'Pick One', fsFocusIdx === 17 || confirmEnabled);
-    _fsConfirmBtn = { x: VIEW_W - SAFE_X - btnW - 12, y: btnY, w: btnW, h: bottomBtnH };
+    _fsConfirmBtn = { x: cX, y: btnY, w: btnW, h: bottomBtnH };
 }
 
 // ── Bracket view ──
@@ -4870,61 +5261,79 @@ var _bracketBackBtn = { x:0, y:0, w:0, h:0 };
 
 function drawBracket() {
     var p = isPortrait();
-    ctx.fillStyle = COLOR_BG;
-    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    drawBackdrop();
 
     var roundLabel = ROUND_NAMES[Math.min(tournament.roundIdx, ROUND_NAMES.length - 1)] || 'ROUND';
-    drawBar(roundLabel, '', _diffNames[difficulty]);
+    var top = drawHeader(roundLabel, _diffNames[difficulty]) + pad();
 
     var round = tournament.rounds[tournament.roundIdx];
-    var topPad = BAR_H + (p ? 18 : 14);
-    var bottomBtnH = p ? 44 : 32;
-    var listY = topPad;
-    var listW = Math.min(VIEW_W - 30, 420);
+    var bottomBtnH = p ? 42 : 32;
+    var listW = Math.min(contentW(), p ? contentW() : 440);
     var listX = Math.round((VIEW_W - listW) / 2);
-    var rowH = Math.max(p ? 36 : 26, Math.floor((VIEW_H - topPad - bottomBtnH - 30) / Math.max(1, round.length)));
-    if (rowH > 50) rowH = 50;
+    var avail = VIEW_H - top - bottomBtnH - pad() * 2;
+    var rowGap = SP;
+    var rowH = Math.max(p ? 32 : 24,
+        Math.floor((avail - rowGap * (round.length - 1)) / Math.max(1, round.length)));
+    rowH = Math.min(rowH, p ? 52 : 44);
 
     for (var i = 0; i < round.length; i++) {
         var m = round[i];
-        var ry = listY + i * rowH;
-        var bgColor = m.playerInvolved ? COLOR_GOLD : '#fff';
-        drawPixelRoundRect(listX, ry, listW, rowH - 4, 3, bgColor);
-        var fillColor = m.playerInvolved ? COLOR_BG_DARK : COLOR_BG_LIGHT;
-        drawPixelRoundRect(listX + 2, ry + 2, listW - 4, rowH - 8, 3, fillColor);
+        var ry = top + i * (rowH + rowGap);
+        var mine = m.playerInvolved;
+        // Your match is the only gold thing on the screen.
+        drawPanel(listX, ry, listW, rowH, {
+            fill: mine ? '#20456f' : C_NAVY_SOFT,
+            selected: mine,
+            accent: mine ? C_GOLD : null
+        });
 
-        ctx.font = 'bold ' + (p ? 11 : 9) + 'px ' + FONT;
+        // Your match carries a caption, so nudge the centre content up for it.
+        var midY = ry + rowH / 2 - (mine ? (p ? 6 : 5) : 0);
+        var inset = SP * 3;
+        var fw = p ? 18 : 15, fh = Math.round(fw * 0.68);
+
+        // Left fencer: flag, then code
+        drawFlag(listX + inset, midY - fh / 2, fw, fh, m.a.code);
+        setFont(p ? 11 : 9);
         ctx.textBaseline = 'middle';
-        var midY = ry + (rowH - 4) / 2;
-
-        // Left fencer
-        var aColor = (m.played && m.winner === m.b) ? 'rgba(255,255,255,0.4)' : '#fff';
         ctx.textAlign = 'left';
-        ctx.fillStyle = m.a.colors[0];
-        ctx.fillRect(listX + 10, midY - 5, 4, 10);
-        ctx.fillStyle = aColor;
-        ctx.fillText(m.a.code, listX + 18, midY);
+        ctx.fillStyle = (m.played && m.winner === m.b) ? C_TEXT_FAINT : C_TEXT;
+        ctx.fillText(m.a.code, listX + inset + fw + 7, midY);
+
         // Right fencer
+        drawFlag(listX + listW - inset - fw, midY - fh / 2, fw, fh, m.b.code);
         ctx.textAlign = 'right';
-        var bColor = (m.played && m.winner === m.a) ? 'rgba(255,255,255,0.4)' : '#fff';
-        ctx.fillStyle = m.b.colors[0];
-        ctx.fillRect(listX + listW - 14, midY - 5, 4, 10);
-        ctx.fillStyle = bColor;
-        ctx.fillText(m.b.code, listX + listW - 22, midY);
-        // Score in middle
+        ctx.fillStyle = (m.played && m.winner === m.a) ? C_TEXT_FAINT : C_TEXT;
+        ctx.fillText(m.b.code, listX + listW - inset - fw - 7, midY);
+
+        // Centre: score once played, otherwise a quiet divider
         ctx.textAlign = 'center';
         if (m.played) {
-            ctx.fillStyle = COLOR_GOLD;
-            ctx.fillText(m.scoreA + '-' + m.scoreB, listX + listW / 2, midY);
+            setFont(p ? 12 : 10);
+            ctx.fillStyle = C_GOLD;
+            ctx.fillText(m.scoreA + ' - ' + m.scoreB, listX + listW / 2, midY);
         } else {
-            ctx.fillStyle = 'rgba(255,255,255,0.5)';
+            setFont(tsMicro());
+            ctx.fillStyle = C_TEXT_FAINT;
             ctx.fillText('VS', listX + listW / 2, midY);
+            ctx.globalAlpha = 0.18;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(listX + listW / 2 - 26, midY, 18, 1);
+            ctx.fillRect(listX + listW / 2 + 8, midY, 18, 1);
+            ctx.globalAlpha = 1;
+        }
+
+        if (mine) {
+            setFont(tsMicro() - 1);
+            ctx.textAlign = 'center';
+            ctx.fillStyle = C_GOLD;
+            ctx.fillText('YOUR MATCH', listX + listW / 2, midY + (p ? 15 : 13));
         }
     }
 
     // Footer button — context dependent
-    var btnY = VIEW_H - bottomBtnH - 8;
-    var btnW = p ? 220 : 180;
+    var btnY = VIEW_H - bottomBtnH - pad();
+    var btnW = p ? 200 : 170;
     var label, primary;
     var pIdx = findPlayerMatch(tournament);
     if (pIdx >= 0) {
@@ -4943,11 +5352,14 @@ function drawBracket() {
             primary = true;
         }
     }
-    drawButton(VIEW_W / 2 - btnW / 2, btnY, btnW, bottomBtnH, label, bracketFocus === 1);
-    _bracketBtn = { x: VIEW_W / 2 - btnW / 2, y: btnY, w: btnW, h: bottomBtnH };
-    // Back-to-title (small, top-left)
-    drawButton(SAFE_X + 8, btnY, p ? 80 : 70, bottomBtnH, 'Quit', bracketFocus === 0);
-    _bracketBackBtn = { x: SAFE_X + 8, y: btnY, w: p ? 80 : 70, h: bottomBtnH };
+    // Footer sits on the shared content grid: Quit left, action right, so the
+    // primary action is where the eye finishes rather than floating centred.
+    var quitW = p ? 90 : 76;
+    drawButton(contentX(), btnY, quitW, bottomBtnH, 'Quit', bracketFocus === 0);
+    _bracketBackBtn = { x: contentX(), y: btnY, w: quitW, h: bottomBtnH };
+    var actX = contentX() + contentW() - btnW;
+    drawButton(actX, btnY, btnW, bottomBtnH, label, bracketFocus === 1);
+    _bracketBtn = { x: actX, y: btnY, w: btnW, h: bottomBtnH };
 }
 
 // ── Match intro ──
@@ -4960,11 +5372,10 @@ var _matchIntroOpponent = null;
 
 function drawMatchIntro() {
     var p = isPortrait();
-    ctx.fillStyle = COLOR_BG;
-    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    drawBackdrop();
 
     var roundLabel = ROUND_NAMES[Math.min(tournament.roundIdx, ROUND_NAMES.length - 1)] || '';
-    drawBar(roundLabel, '', _diffNames[difficulty]);
+    drawHeader(roundLabel, _diffNames[difficulty]);
 
     var pIdx = findPlayerMatch(tournament);
     if (pIdx < 0) return;
@@ -4977,44 +5388,59 @@ function drawMatchIntro() {
     }
     _matchIntroOpponent = opponent;
 
-    // Big "VS" layout
-    var titleY = BAR_H + (p ? 50 : 40);
-    ctx.font = 'bold ' + (p ? 18 : 14) + 'px ' + FONT;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = COLOR_GOLD;
-    ctx.fillText(roundLabel, VIEW_W / 2, titleY);
-
-    var spriteY = Math.round(VIEW_H * 0.55);
-    var spriteSize = p ? 5 : 4.4;
-    // Player on left, opponent on right (visually)
+    // The round name is already in the header; printing it again 40px below
+    // was pure duplication.
+    var spriteY = Math.round(VIEW_H * (p ? 0.46 : 0.56));
+    var spriteSize = p ? 5.2 : 4.4;
     var leftX = Math.round(VIEW_W * 0.28);
     var rightX = Math.round(VIEW_W * 0.72);
-    // Flags above the sprites
-    var flagW = p ? 36 : 28;
-    var flagH = p ? 24 : 19;
-    drawFlag(leftX - flagW / 2, spriteY - 110, flagW, flagH, playerFencer.code);
-    drawFlag(rightX - flagW / 2, spriteY - 110, flagW, flagH, opponent.code);
+    var spriteH = SPRITE_ROWS * 1.8 * spriteSize;
+
     drawFencer(leftX, spriteY, playerFencer, spriteSize, 'right', 'salute', skinFor(playerFencer));
     drawFencer(rightX, spriteY, opponent, spriteSize, 'left', 'salute', skinFor(opponent));
 
+    // Flags and names go on AFTER the sprites — drawn before, they were
+    // immediately overpainted and never appeared at all.
+    var flagW = p ? 40 : 32;
+    var flagH = Math.round(flagW * 0.66);
+    var flagY = Math.max(headerH() + SP * 3,
+        Math.round(spriteY - spriteH - (p ? 26 : 20)));
+    drawFlag(leftX - flagW / 2, flagY, flagW, flagH, playerFencer.code);
+    drawFlag(rightX - flagW / 2, flagY, flagW, flagH, opponent.code);
+
     // VS in middle
-    ctx.font = 'bold ' + (p ? 28 : 22) + 'px ' + FONT;
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    setFont(p ? 26 : 20);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(0,6,15,0.45)';
     ctx.fillText('VS', VIEW_W / 2 + 2, spriteY - 18 + 2);
-    ctx.fillStyle = COLOR_GOLD;
+    ctx.fillStyle = C_TEXT_DIM;
     ctx.fillText('VS', VIEW_W / 2, spriteY - 18);
 
-    // Names below sprites
-    ctx.font = 'bold ' + (p ? 13 : 10) + 'px ' + FONT;
-    ctx.fillStyle = '#fff';
-    ctx.fillText(playerFencer.name.toUpperCase(), leftX, spriteY + 14);
-    ctx.fillText(opponent.name.toUpperCase(), rightX, spriteY + 14);
-    // Strength stars
-    ctx.font = (p ? 9 : 7) + 'px ' + FONT;
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
-    ctx.fillText('*'.repeat(playerFencer.strength), leftX, spriteY + 28);
-    ctx.fillText('*'.repeat(opponent.strength), rightX, spriteY + 28);
+    // Name plates. Skill is shown as pips, matching the picker — a run of
+    // asterisks read as censored text rather than a rating.
+    function plate(cx, f) {
+        var pw = p ? 150 : 120, ph = p ? 44 : 34;
+        var px2 = Math.round(cx - pw / 2), py2 = spriteY + (p ? 12 : 9);
+        drawPanel(px2, py2, pw, ph, { fill: C_NAVY, flat: true });
+        setFont(p ? 11 : 9);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = C_TEXT;
+        ctx.fillText(f.name.toUpperCase(), cx, py2 + ph * 0.33);
+        setFont(tsMicro());
+        ctx.fillStyle = C_TEXT_FAINT;
+        ctx.fillText(styleNameFor(f), cx, py2 + ph * 0.66);
+        var pipW = 5, pipGap = 2, pipN = 5;
+        var total = pipN * pipW + (pipN - 1) * pipGap;
+        var sx = Math.round(cx - total / 2), sy = py2 + ph - (p ? 9 : 7);
+        for (var k = 0; k < pipN; k++) {
+            ctx.fillStyle = (k < f.strength) ? C_GOLD : 'rgba(255,255,255,0.16)';
+            ctx.fillRect(sx + k * (pipW + pipGap), sy, pipW, 3);
+        }
+    }
+    plate(leftX, playerFencer);
+    plate(rightX, opponent);
 
     // Start button
     var btnH = p ? 50 : 36;
@@ -5029,9 +5455,10 @@ var _endScreenBtn = { x:0, y:0, w:0, h:0 };
 
 function drawChampion() {
     var p = isPortrait();
-    ctx.fillStyle = COLOR_BG_DARK;
+    drawBackdrop();
+    ctx.fillStyle = 'rgba(4,14,30,0.55)';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-    drawBar('CHAMPION', '', '');
+    drawHeader('Champion');
 
     if (!tournament || !tournament.champion) return;
     var champ = tournament.champion;
@@ -5077,9 +5504,10 @@ function drawChampion() {
 
 function drawGameOver() {
     var p = isPortrait();
-    ctx.fillStyle = COLOR_BG_DARK;
+    drawBackdrop();
+    ctx.fillStyle = 'rgba(4,14,30,0.55)';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-    drawBar('ELIMINATED', '', '');
+    drawHeader('Eliminated');
 
     ctx.font = 'bold ' + (p ? 26 : 22) + 'px ' + FONT;
     ctx.textAlign = 'center';
