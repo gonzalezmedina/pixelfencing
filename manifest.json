@@ -1,24 +1,58 @@
 {
+  "id": "/",
   "name": "Pixel Fencing",
-  "short_name": "Pixel Fencing",
-  "description": "A retro pixel-art fencing game",
-  "start_url": "/",
-  "display": "standalone",
-  "orientation": "any",
+  "short_name": "Fencing",
+  "description": "A retro pixel-art fencing game. Two buttons: attack or block.",
+  "lang": "en",
+  "dir": "ltr",
+  "start_url": "/?source=pwa",
   "scope": "/",
-  "background_color": "#1e4e8e",
+  "display": "standalone",
+  "display_override": ["fullscreen", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#0e2a4a",
   "theme_color": "#0e2a4a",
+  "categories": ["games", "sports"],
   "icons": [
     {
-      "src": "/assets/favicon.png",
-      "sizes": "24x16",
-      "type": "image/png"
+      "src": "/assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "/assets/apple-touch-icon.png",
-      "sizes": "1200x1200",
+      "src": "/assets/icon-512.png",
+      "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/assets/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Quick Bout",
+      "short_name": "Play",
+      "description": "Straight into a bout with your fencer",
+      "url": "/?go=play",
+      "icons": [{ "src": "/assets/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Tournament",
+      "short_name": "Tournament",
+      "description": "Continue or start a 16-fencer draw",
+      "url": "/?go=tournament",
+      "icons": [{ "src": "/assets/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

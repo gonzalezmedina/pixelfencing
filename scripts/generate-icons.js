@@ -190,26 +190,42 @@ function renderIcon(width, height, opts) {
 }
 
 // ── Generate ──
+//
+// A PWA needs a real icon set. Chrome will not offer installation without a
+// 192x192 and a 512x512 PNG, and a maskable icon has to keep its content
+// inside a safe circle of 80% diameter or platforms will crop it.
 const outDir = path.resolve(__dirname, '..', 'assets');
 if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 
-// 1200×1200 apple-touch-icon (also used as PWA maskable)
-{
-    const W = 1200, H = 1200;
-    const { rgba, scale } = renderIcon(W, H, { fillRatio: 0.78 });
-    const png = encodePNG(W, H, rgba);
-    const out = path.join(outDir, 'apple-touch-icon.png');
-    fs.writeFileSync(out, png);
-    console.log(`apple-touch-icon.png  ${W}×${H}  scale ${scale}x  ${png.length} bytes`);
+function write(name, w, h, opts) {
+    const { rgba, scale } = renderIcon(w, h, opts);
+    const png = encodePNG(w, h, rgba);
+    fs.writeFileSync(path.join(outDir, name), png);
+    const tag = (opts && opts.maskable) ? ' maskable' : '';
+    console.log(`${name.padEnd(26)} ${w}x${h}  scale ${scale}x  ${png.length} bytes${tag}`);
 }
 
-// Favicon — sized to the sprite's exact bounding box (no padding) on a
-// transparent background, so it sits cleanly on any browser chrome.
+// Standard icons — the sprite fills most of the square.
+write('icon-192.png', 192, 192, { fillRatio: 0.80 });
+write('icon-512.png', 512, 512, { fillRatio: 0.80 });
+
+// Maskable icons — the sprite is pulled well inside the safe circle so that
+// a platform cropping to a circle or squircle never clips the blade.
+write('icon-maskable-192.png', 192, 192, { fillRatio: 0.56, maskable: true });
+write('icon-maskable-512.png', 512, 512, { fillRatio: 0.56, maskable: true });
+
+// iOS home screen. 180x180 is the size Safari actually asks for; the old
+// 1200x1200 was downscaled by the OS every time.
+write('apple-touch-icon.png', 180, 180, { fillRatio: 0.78 });
+
+// Browser tab. Square, so it isn't letterboxed in the tab strip.
+write('favicon-32.png', 32, 32, { fillRatio: 0.92, transparent: true });
+
+// Tight-bounds transparent favicon, kept for the existing <link>.
 {
-    const W = SPRITE_W, H = SPRITE_H; // 24 × 16
-    const { rgba, scale } = renderIcon(W, H, { forceScale: 1, transparent: true });
+    const W = SPRITE_W, H = SPRITE_H;
+    const { rgba } = renderIcon(W, H, { forceScale: 1, transparent: true });
     const png = encodePNG(W, H, rgba);
-    const out = path.join(outDir, 'favicon.png');
-    fs.writeFileSync(out, png);
-    console.log(`favicon.png           ${W}×${H}  scale ${scale}x  ${png.length} bytes  (transparent, tight bounds)`);
+    fs.writeFileSync(path.join(outDir, 'favicon.png'), png);
+    console.log(`${'favicon.png'.padEnd(26)} ${W}x${H}  scale 1x  ${png.length} bytes  (tight bounds)`);
 }

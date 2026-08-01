@@ -1033,6 +1033,7 @@ function isPortrait() { return VIEW_H > VIEW_W; }
 //
 var titleFocus = 0;        // 0=Play 1=How 2=Tourney 3=2P 4=MyFencer 5=Records 6=Settings
 var TITLE_FOCUS_COUNT = 7;
+function titleFocusCount() { return installAvailable() ? 8 : 7; }
 var fsFocusIdx = 0;        // 0..15 = grid cell, 16=Back, 17=Start
 var rosterFocusIdx = 0;    // 0..15 = grid cell, 16=Back
 var settingsFocus = 0;     // 0=Sound 1=Music 2=Effects 3=Weapon 4=Difficulty
@@ -1127,6 +1128,37 @@ function updateAutoMove() {
     if (bp1.stamina < STAM_TIRED * 0.7) { wantIn = hitGap * 1.15; wantOut = hitGap * 1.35; }
     bp1Keys.advance = (gap > wantOut);
     bp1Keys.retreat = (gap < wantIn);
+}
+
+// ── Install ──
+//
+// index.html captures beforeinstallprompt. Without an in-game button the only
+// route is the browser's own banner, which most platforms never show.
+function installAvailable() {
+    try {
+        return !!(window.__pfInstall && window.__pfInstall.available &&
+                  window.__pfInstall.prompt) && !isStandalone();
+    } catch (e) { return false; }
+}
+
+function isStandalone() {
+    try {
+        return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+               (window.matchMedia && window.matchMedia('(display-mode: fullscreen)').matches) ||
+               window.navigator.standalone === true;
+    } catch (e) { return false; }
+}
+
+function doInstall() {
+    if (!installAvailable()) return;
+    sfxMenuConfirm();
+    try {
+        var p = window.__pfInstall.prompt;
+        window.__pfInstall.prompt = null;
+        window.__pfInstall.available = false;
+        p.prompt();
+        dirty = true;
+    } catch (e) {}
 }
 
 // ── Career stats ──
@@ -1915,9 +1947,7 @@ function drawTutorial() {
     if (_isTouchDevice) {
         rows = autoMoveOn ? [
             ['ATTACK', 'Hit them'],
-            ['BLOCK',  'Stop their hit'],
-            ['',       'Your feet move themselves'],
-            ['',       'Two buttons. That is the game.']
+            ['BLOCK',  'Stop their hit']
         ] : [
             ['ATTACK',   'Hit them'],
             ['BLOCK',    'Stop their hit'],
@@ -1933,6 +1963,10 @@ function drawTutorial() {
         ];
     }
     var rules;
+    // On touch with auto footwork, say up front that there is nothing else.
+    var lead = (_isTouchDevice && autoMoveOn)
+        ? ['Two buttons. Your feet move themselves.', '']
+        : [];
     if (weapon().key === 'epee') {
         rules = [
             'Get close, then attack.',
@@ -1964,6 +1998,7 @@ function drawTutorial() {
     var headGap = p ? 12 : 9;
     var headH = p ? 16 : 13;
 
+    rules = lead.concat(rules);
     var contentH = rows.length * lineH + headGap + headH + rules.length * ruleH;
     var dlgW = p ? Math.min(VIEW_W - 30, 440) : 440;
     var dlgH = Math.min(VIEW_H - 16,
@@ -3768,6 +3803,7 @@ var _title2PBtn = { x: 0, y: 0, w: 0, h: 0 };
 var _titleStatsBtn = { x: 0, y: 0, w: 0, h: 0 };
 var _titleQuickBtn = { x: 0, y: 0, w: 0, h: 0 };
 var _titleHelpBtn = { x: 0, y: 0, w: 0, h: 0 };
+var _titleInstallBtn = { x: 0, y: 0, w: 0, h: 0 };
 
 function drawTitle() {
     var p = isPortrait();
@@ -3868,6 +3904,20 @@ function drawTitle() {
     _titleTourneyBtn = { x: bx, y: rowY, w: btnW, h: btnH }; rowY += btnH + btnGap;
     drawButton(bx, rowY, btnW, btnH, '2 Players', titleFocus === 3);
     _title2PBtn = { x: bx, y: rowY, w: btnW, h: btnH };
+
+    // ── Install ──
+    // Only shown when the browser has actually offered it, so it never sits
+    // there as a dead control.
+    if (installAvailable()) {
+        var iw = Math.min(contentW(), p ? 220 : 170);
+        var ih = p ? 30 : 24;
+        var ix = Math.round(VIEW_W / 2 - iw / 2);
+        var iy = rowY + btnH + SP * 3;
+        drawButton(ix, iy, iw, ih, 'Install App', titleFocus === 7);
+        _titleInstallBtn = { x: ix, y: iy, w: iw, h: ih };
+    } else {
+        _titleInstallBtn = { x: 0, y: 0, w: 0, h: 0 };
+    }
 
     // ── Status line: what Play will start ──
     setFont(tsMicro());
@@ -6072,6 +6122,7 @@ function onPointerDown(e) {
         if (pointInRect(pt, _titleTourneyBtn))  { enterTournament(); return; }
         if (pointInRect(pt, _titleQuickBtn))    { enterQuickBout(); return; }
         if (pointInRect(pt, _titleHelpBtn))     { openTutorial(); return; }
+        if (pointInRect(pt, _titleInstallBtn))  { doInstall(); return; }
         if (pointInRect(pt, _titlePracticeBtn)) { enterPracticeBout(); return; }
         if (pointInRect(pt, _title2PBtn))       { enterTwoPlayer(); return; }
         return;
@@ -6366,11 +6417,11 @@ function onKeyDown(e) {
     if (state === S_TITLE) {
         if (e.key === 'Tab') {
             e.preventDefault();
-            titleFocus = (titleFocus + (e.shiftKey ? -1 : 1) + TITLE_FOCUS_COUNT) % TITLE_FOCUS_COUNT;
+            titleFocus = (titleFocus + (e.shiftKey ? -1 : 1) + titleFocusCount()) % titleFocusCount();
             dirty = true; return;
         }
-        if (e.key === 'ArrowDown') { titleFocus = (titleFocus + 1) % TITLE_FOCUS_COUNT; dirty = true; e.preventDefault(); return; }
-        if (e.key === 'ArrowUp')   { titleFocus = (titleFocus - 1 + TITLE_FOCUS_COUNT) % TITLE_FOCUS_COUNT; dirty = true; e.preventDefault(); return; }
+        if (e.key === 'ArrowDown') { titleFocus = (titleFocus + 1) % titleFocusCount(); dirty = true; e.preventDefault(); return; }
+        if (e.key === 'ArrowUp')   { titleFocus = (titleFocus - 1 + titleFocusCount()) % titleFocusCount(); dirty = true; e.preventDefault(); return; }
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             if      (titleFocus === 0) enterQuickBout();
@@ -6380,6 +6431,7 @@ function onKeyDown(e) {
             else if (titleFocus === 4) enterPracticeBout();
             else if (titleFocus === 5) enterStats();
             else if (titleFocus === 6) openSettings();
+            else if (titleFocus === 7) doInstall();
             return;
         }
         // Letter shortcuts
@@ -6576,6 +6628,18 @@ function loop(ts) {
     }
 }
 
+// The manifest declares Quick Bout and Tournament shortcuts; honour them when
+// the app is launched from a long-press on the home screen icon.
+function applyLaunchShortcut() {
+    var go = '';
+    try {
+        var m = /[?&]go=([a-z]+)/i.exec(window.location.search || '');
+        if (m) go = m[1].toLowerCase();
+    } catch (e) {}
+    if (go === 'play') enterQuickBout();
+    else if (go === 'tournament') enterTournament();
+}
+
 function init() {
     canvas = document.getElementById('cFence');
     if (!canvas) return;
@@ -6609,6 +6673,7 @@ function init() {
     loadStats();
     loadFencersData(function() {
         state = S_TITLE;
+        applyLaunchShortcut();
         dirty = true;
         lastTime = performance.now();
         requestAnimationFrame(loop);

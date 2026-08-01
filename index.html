@@ -4,13 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0e2a4a">
-<meta name="description" content="A retro pixel-art fencing game">
+<meta name="description" content="A retro pixel-art fencing game. Two buttons: attack or block.">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Pixel Fencing">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Fencing">
+<meta name="application-name" content="Pixel Fencing">
 <title>Pixel Fencing</title>
 <link rel="manifest" href="/manifest.json">
-<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
 <link rel="icon" type="image/png" href="/assets/favicon.png">
 <style>
 @font-face {
@@ -21,10 +24,22 @@
   src: url(/assets/PressStart2P.ttf) format('truetype');
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+html, body {
+  width: 100%; height: 100%; overflow: hidden; background: #0e2a4a;
+  /* Installed, the game owns the whole surface: no pull-to-refresh, no
+     rubber-band scroll, no long-press callout or selection on a tap. */
+  overscroll-behavior: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
 body { display: block; }
 canvas { display: block; outline: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; }
-@media (display-mode: standalone) { html, body { height: 100dvh; } }
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  html, body { height: 100dvh; }
+}
 </style>
 </head>
 <body>
@@ -32,8 +47,46 @@ canvas { display: block; outline: none; position: fixed; top: 0; left: 0; width:
 <script src="/game.js"></script>
 <script>
 if (window._fenceInit) window._fenceInit();
+
+// ── Install ──
+// Stash the prompt so the game can offer an INSTALL button on the title
+// screen; without this the browser's own banner is the only route, and on
+// most platforms it never appears.
+window.__pfInstall = { available: false, prompt: null, installed: false };
+window.addEventListener('beforeinstallprompt', function (e) {
+  e.preventDefault();
+  window.__pfInstall.prompt = e;
+  window.__pfInstall.available = true;
+});
+window.addEventListener('appinstalled', function () {
+  window.__pfInstall.available = false;
+  window.__pfInstall.prompt = null;
+  window.__pfInstall.installed = true;
+});
+
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/service-worker.js');
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('/service-worker.js').then(function (reg) {
+      // A new build is live: take it on the next load rather than stranding
+      // the player on a stale bundle until every tab is closed.
+      reg.addEventListener('updatefound', function () {
+        var sw = reg.installing;
+        if (!sw) return;
+        sw.addEventListener('statechange', function () {
+          if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+            sw.postMessage('skipWaiting');
+          }
+        });
+      });
+    }).catch(function () { /* offline first run, or no SW support */ });
+
+    var reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (reloading) return;
+      reloading = true;
+      window.location.reload();
+    });
+  });
 }
 </script>
 </body>

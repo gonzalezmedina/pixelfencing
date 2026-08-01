@@ -3,7 +3,18 @@
 A retro pixel-art fencing game that runs in the browser. No build step, no
 dependencies — a canvas, one script, and a JSON roster.
 
-Play it at **[fencing.pixelrugby.com](https://fencing.pixelrugby.com)**.
+Play it at **[fencing.pixelrugby.com](https://fencing.pixelrugby.com)**, or
+install it — it's a PWA and runs fully offline once loaded.
+
+## Installing
+
+Open the site and tap **Install App** on the title screen (the button only
+appears when the browser has actually offered it). On iOS, use Share → Add to
+Home Screen; Safari does not fire an install prompt.
+
+Once installed it runs offline: the service worker precaches the whole app on
+first load, so a cold launch in aeroplane mode still plays. Long-pressing the
+icon gives shortcuts straight into **Quick Bout** or **Tournament**.
 
 ## How it plays
 
@@ -116,11 +127,12 @@ then open <http://127.0.0.1:8123>. Append `?debug=true` for debug output.
 
 | File | What's in it |
 |---|---|
-| `index.html` | Canvas, font face, service-worker registration |
+| `index.html` | Canvas, font face, install prompt capture, SW registration |
+| `manifest.json` | PWA manifest — icons, shortcuts, display mode |
 | `game.js` | The whole game in one IIFE — audio, sprites, combat, AI, screens |
 | `fencers.json` | Roster: colours, skin tones, strength, region, style, flags |
-| `service-worker.js` | Offline cache (bump `CACHE_NAME` when shipping) |
-| `scripts/generate-icons.js` | Regenerates the favicon and touch icon |
+| `service-worker.js` | Offline cache (**bump `CACHE_NAME` on every deploy**) |
+| `scripts/generate-icons.js` | Regenerates the whole icon set (`node scripts/generate-icons.js`) |
 
 `game.js` is sectioned with `// ── Name ──` headers, in roughly this order:
 constants and palette, audio engine, canvas and resize, state enum, persistence
