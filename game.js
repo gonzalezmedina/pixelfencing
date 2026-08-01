@@ -1283,8 +1283,13 @@ var STAM_TIRED_MUL = 1.45;  // duration multiplier when tired
 // a parry. Costs more, and whiffs badly if they never blocked.
 var FEINT_WINDOW = 150;     // ms after starting a lunge in which ↑ becomes a feint
 
-// Touch target — set per bout (5 for pool bouts, 15 for the final).
-var BOUT_TARGET = 5;
+// Touch targets, from the sport. A pool bout is first to 5; a direct
+// elimination bout is first to 15. There is no 3-touch format in fencing —
+// the old difficulty-linked target was invented, and it meant the bout's
+// format silently changed when you touched an unrelated setting.
+var POOL_TOUCHES = 5;
+var FINAL_TOUCHES = 15;
+var BOUT_TARGET = POOL_TOUCHES;
 var BOUT_TIME_MS = 180000;  // 3:00 on the clock
 
 var bp1 = null, bp2 = null;
@@ -2274,7 +2279,7 @@ function findPlayerMatch(t) {
     return -1;
 }
 
-function simulateMatch(m) {
+function simulateMatch(m, target) {
     var sa = (m.a.strength || 3);
     var sb = (m.b.strength || 3);
     // Each touch is decided by relative strength with a small luck factor
@@ -2282,8 +2287,9 @@ function simulateMatch(m) {
     // Add ±0.06 random form swing per match (re-rolled each call)
     var formA = (Math.random() - 0.5) * 0.12;
     pa = Math.max(0.1, Math.min(0.9, pa + formA));
+    var goal = target || POOL_TOUCHES;
     m.scoreA = 0; m.scoreB = 0;
-    while (m.scoreA < BOUT_TARGET && m.scoreB < BOUT_TARGET) {
+    while (m.scoreA < goal && m.scoreB < goal) {
         if (Math.random() < pa) m.scoreA++;
         else m.scoreB++;
     }
@@ -2293,8 +2299,9 @@ function simulateMatch(m) {
 
 function simulateRemainingMatches(t) {
     var round = t.rounds[t.roundIdx];
+    var goal = targetForRound(t);
     for (var i = 0; i < round.length; i++) {
-        if (!round[i].played) simulateMatch(round[i]);
+        if (!round[i].played) simulateMatch(round[i], goal);
     }
 }
 
@@ -5068,9 +5075,15 @@ function drawStatsScreen() {
 
 // Straight into a bout with the saved favourite and last weapon. The old flow
 // was five taps between every 30-second bout.
-function defaultTarget() {
-    return (difficulty <= D_EASY) ? 3 : 5;
+function defaultTarget() { return POOL_TOUCHES; }
+
+// The last match of the draw is the one direct-elimination bout, so it runs
+// to 15 with a full 9 minutes on the clock.
+function isFinalRound(t) {
+    return !!t && !!t.rounds[t.roundIdx] && t.rounds[t.roundIdx].length === 1;
 }
+function targetForRound(t) { return isFinalRound(t) ? FINAL_TOUCHES : POOL_TOUCHES; }
+function timeForRound(t) { return isFinalRound(t) ? 540000 : BOUT_TIME_MS; }
 
 function enterQuickBout() {
     ensureAudioStarted();
@@ -5327,7 +5340,9 @@ function drawBracket() {
             setFont(tsMicro() - 1);
             ctx.textAlign = 'center';
             ctx.fillStyle = C_GOLD;
-            ctx.fillText('YOUR MATCH', listX + listW / 2, midY + (p ? 15 : 13));
+            ctx.fillText(isFinalRound(tournament)
+                ? 'YOUR MATCH  ·  FIRST TO ' + FINAL_TOUCHES
+                : 'YOUR MATCH', listX + listW / 2, midY + (p ? 15 : 13));
         }
     }
 
@@ -5446,7 +5461,19 @@ function drawMatchIntro() {
     var btnH = p ? 50 : 36;
     var btnW = p ? 240 : 200;
     var btnY = VIEW_H - btnH - (p ? 24 : 16);
-    drawButton(VIEW_W / 2 - btnW / 2, btnY, btnW, btnH, 'Fence!', true);
+
+    // Format line, so the target is never a surprise once the bout starts.
+    var isFinal = isFinalRound(tournament);
+    setFont(tsMicro());
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = isFinal ? C_GOLD : C_TEXT_FAINT;
+    ctx.fillText(isFinal ? 'THE FINAL  ·  FIRST TO ' + FINAL_TOUCHES
+                         : 'FIRST TO ' + POOL_TOUCHES,
+        VIEW_W / 2, btnY - (p ? 20 : 15));
+
+    drawButton(VIEW_W / 2 - btnW / 2, btnY, btnW, btnH,
+        isFinal ? 'Fence the Final!' : 'Fence!', true);
     _matchIntroBtn = { x: VIEW_W / 2 - btnW / 2, y: btnY, w: btnW, h: btnH };
 }
 
@@ -5715,7 +5742,10 @@ function startMatchIntroBout() {
     var playerFencer, opponent;
     if (match.a.code === tournament.playerCode) { playerFencer = match.a; opponent = match.b; }
     else { playerFencer = match.b; opponent = match.a; }
-    startBout(playerFencer, opponent, { target: defaultTarget() });
+    startBout(playerFencer, opponent, {
+        target: targetForRound(tournament),
+        time: timeForRound(tournament)
+    });
 }
 
 function finishTournamentMatch() {
@@ -6380,6 +6410,7 @@ if (DEBUG || (typeof window !== 'undefined' && window.location &&
             p2: bp2 ? bp2.touches : null,
             stam1: bp1 ? Math.round(bp1.stamina) : null,
             weapon: weaponKey,
+            target: BOUT_TARGET,
             gap: (bp1 && bp2) ? +(bp2.pos - bp1.pos).toFixed(2) : null,
             hitGap: +(BODY_R * 2 + weapon().reach + LUNGE_ADVANCE).toFixed(2),
             act1: bp1 ? bp1.act : null,
@@ -6389,6 +6420,8 @@ if (DEBUG || (typeof window !== 'undefined' && window.location &&
             riposte: bp1 ? bp1.riposteT > 0 : false,
             pos1: bp1 ? +bp1.pos.toFixed(2) : null,
             round: tournament ? tournament.roundIdx : null,
+            roundTarget: tournament ? targetForRound(tournament) : null,
+            isFinal: tournament ? isFinalRound(tournament) : null,
             eliminated: tournament ? tournament.playerEliminated : null,
             champion: tournament && tournament.champion ? tournament.champion.code : null
         };

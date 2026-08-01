@@ -36,12 +36,23 @@ Every action spends **stamina** (the bar under your score). Run dry and you
 slow down and fall short. Backing off the end of the strip concedes a point,
 as it does in the sport.
 
+## Bout length
+
+Both numbers come from the sport:
+
+- **First to 5** — every bout, in every mode. This is a real *pool* bout.
+- **First to 15** — the tournament final only, with 9:00 on the clock. This is
+  a real *direct elimination* bout, and it makes the last match of a run feel
+  like the last match of a run.
+
+Difficulty does not change the format. It used to, which meant the bout length
+silently changed when you touched an unrelated setting.
+
 ## Difficulty
 
 Starts on **Beginner**, where the opponent is a sparring partner: it rarely
-blocks in time, attacks slowly, and never fakes. Beginner and Easy bouts are
-first to 3; Normal and Hard are first to 5 and expect you to use all three
-verbs.
+blocks in time, attacks slowly, and never fakes. Normal and Hard expect you to
+use all three verbs.
 
 **Go Easy On Me** (Settings, on by default) quietly holds the opponent back
 when it is more than one point ahead, so a bad start doesn't spiral.
@@ -62,6 +73,7 @@ plain-language name is the headline; the sport's name is underneath.
 - **Play** — straight into a bout with your fencer and sword.
 - **How to Play** — the rules, in about ten lines.
 - **Tournament** — a 16-fencer single-elimination draw, saved between sessions.
+  Rounds are first to 5; the final is first to 15.
 - **2 Players** — local hot seat. P1 on `WASD`, P2 on the arrow keys.
 - **My Fencer** — pick your fencer and sword.
 - **Records** — career stats: wins, streaks, points, blocks, counter hits,
