@@ -13,14 +13,26 @@ attacked first, your hit doesn't count — block instead, then hit them back.
 That's it. You don't need to know anything about fencing; the game prints the
 key to press on screen while you learn.
 
+On a phone the whole game is **two buttons and one thumb**. Your fencer keeps
+its own distance, so all you decide is *attack* or *block*.
+
 | Action | Keys | Touch |
 |---|---|---|
-| Move towards them | `→` | hold right |
-| Back away | `←` | hold left |
-| Attack | `↑` or `Space` | tap |
-| Block | `↓` | swipe down |
-| Fake (advanced) | `↑` twice, quickly | tap twice |
+| Attack | `↑` or `Space` | tap **ATTACK** |
+| Block | `↓` | tap **BLOCK** |
+| Fake (advanced) | `↑` twice, quickly | tap **ATTACK** twice |
+| Move towards them | `→` | tap **IN** (auto footwork off) |
+| Back away | `←` | tap **BACK** (auto footwork off) |
 | Quit | `Esc` | QUIT button |
+
+No swipes, no holds, no second finger — every control is a single tap on a
+target in a bottom corner.
+
+**When they attack, they coil first.** The opponent visibly winds up, glows
+red, and the prompt counts down how long you have. Block inside that window
+and you get a free hit. The wind-up is over half a second on Beginner and
+tightens as the difficulty rises — it used to be 45 milliseconds, which is why
+blocking felt like a guess.
 
 Underneath, it's a triangle:
 
@@ -56,6 +68,10 @@ use all three verbs.
 
 **Go Easy On Me** (Settings, on by default) quietly holds the opponent back
 when it is more than one point ahead, so a bad start doesn't spiral.
+
+**Auto Footwork** (Settings, on by default) keeps your own distance for you, so
+the bout is purely the read. Turn it off for the full game, where stepping in
+and out of range is yours to manage.
 
 ## Swords
 

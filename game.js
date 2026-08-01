@@ -446,6 +446,8 @@ function sfxFeint() {
 }
 
 // Whiff — attack meets nothing but air.
+function sfxWindup() { playSfx([[NOTE.C4, 55], [NOTE.G4, 90]], 'triangle', 0.11); }
+
 function sfxWhiff() {
     _seq([
         { kind: 'noise', t: 0, dur: 0.20, vol: 0.14, attack: 0.05,
@@ -1035,7 +1037,7 @@ var fsFocusIdx = 0;        // 0..15 = grid cell, 16=Back, 17=Start
 var rosterFocusIdx = 0;    // 0..15 = grid cell, 16=Back
 var settingsFocus = 0;     // 0=Sound 1=Music 2=Effects 3=Weapon 4=Difficulty
                            // 5=Tutorial 6=Delete 7=Close
-var SETTINGS_FOCUS_COUNT = 9;
+var SETTINGS_FOCUS_COUNT = 10;
 var bracketFocus = 1;      // 0=Quit 1=Continue (Continue is the natural default)
 
 
@@ -1093,6 +1095,39 @@ function loadAssist() {
 }
 function saveAssist() { try { localStorage.setItem(ASSIST_KEY, assistOn ? '1' : '0'); } catch (e) {} }
 function toggleAssist() { assistOn = !assistOn; saveAssist(); sfxMenuConfirm(); dirty = true; }
+
+// ── Auto footwork ──
+//
+// On by default. Managing distance in real time is a second job on top of the
+// timing duel, and it is the part that cannot be done with one thumb. With
+// this on, your fencer keeps its own measure and the bout becomes purely the
+// read: attack or block. Any manual input takes over immediately.
+var AUTOMOVE_KEY = _KP + 'automove';
+var autoMoveOn = true;
+function loadAutoMove() {
+    try {
+        var v = localStorage.getItem(AUTOMOVE_KEY);
+        if (v !== null) autoMoveOn = (v === '1');
+    } catch (e) {}
+}
+function saveAutoMove() { try { localStorage.setItem(AUTOMOVE_KEY, autoMoveOn ? '1' : '0'); } catch (e) {} }
+function toggleAutoMove() { autoMoveOn = !autoMoveOn; saveAutoMove(); sfxMenuConfirm(); dirty = true; }
+
+// Drive bp1's footwork when the player isn't steering.
+function updateAutoMove() {
+    if (!autoMoveOn || twoPlayer || !bp1 || !bp2) return;
+    if (_manualMove) return;                 // the player is steering; hands off
+    var w = weapon();
+    var hitGap = BODY_R * 2 + reachOf(bp1) + LUNGE_ADVANCE;
+    var gap = bp2.pos - bp1.pos;
+    // Hold just inside our own range so ATTACK is always a live option, and
+    // break off if we are gassed and can't do anything with the distance.
+    var wantIn = hitGap * 0.86;
+    var wantOut = hitGap * 1.02;
+    if (bp1.stamina < STAM_TIRED * 0.7) { wantIn = hitGap * 1.15; wantOut = hitGap * 1.35; }
+    bp1Keys.advance = (gap > wantOut);
+    bp1Keys.retreat = (gap < wantIn);
+}
 
 // ── Career stats ──
 //
@@ -1283,6 +1318,18 @@ var STAM_TIRED_MUL = 1.45;  // duration multiplier when tired
 // a parry. Costs more, and whiffs badly if they never blocked.
 var FEINT_WINDOW = 150;     // ms after starting a lunge in which ↑ becomes a feint
 
+// ── Wind-up ──
+//
+// The opponent used to go from standing to committed in 45ms and land in 170.
+// Nobody can read that, so blocking was a coin flip and the whole bout felt
+// random. Their attack now starts with a visible coil, held for this long,
+// during which a block always works. The player's own attacks stay instant.
+var WINDUP_MS = [620, 440, 300, 190];   // beginner, easy, normal, hard
+function windupFor(f) {
+    if (f.side === 1 && !twoPlayer) return 0;       // you are never telegraphed
+    return WINDUP_MS[Math.min(difficulty, WINDUP_MS.length - 1)];
+}
+
 // Touch targets, from the sport. A pool bout is first to 5; a direct
 // elimination bout is first to 15. There is no 3-touch format in fencing —
 // the old difficulty-linked target was invented, and it meant the bout's
@@ -1305,6 +1352,7 @@ var boutMatchPoint = false;
 var boutSuddenDeath = false;
 var twoPlayer = false;
 var bp1Keys = { advance: false, retreat: false };
+var _manualMove = false;   // player is actively steering, auto-footwork stands down
 var bp2Keys = { advance: false, retreat: false };
 
 // How far forward the body travels during a lunge. Without this the attack is
@@ -1659,6 +1707,7 @@ function resetEnGarde() {
     boutSimul = false;
     bp1Keys.advance = bp1Keys.retreat = false;
     bp2Keys.advance = bp2Keys.retreat = false;
+    _manualMove = false;
     fxClearLights();
 }
 
@@ -1746,6 +1795,7 @@ function deleteAllData() {
         localStorage.removeItem(STATS_KEY);
         localStorage.removeItem(WEAPON_KEY);
         localStorage.removeItem(ASSIST_KEY);
+        localStorage.removeItem(AUTOMOVE_KEY);
     } catch(e) {}
     soundOn = true; sfxOn = true; musicOn = true;
     difficulty = D_BEGINNER;
@@ -1780,7 +1830,7 @@ function drawModalShell(w, h, title) {
 function drawSettings() {
     var p = isPortrait();
     var dlgW = p ? Math.min(VIEW_W - 40, 420) : 340;
-    var rowsN = 9;
+    var rowsN = 10;
     var bhPre = p ? 38 : 29;
     var gapPre = p ? 8 : 6;
     var titleHPre = p ? 34 : 28;
@@ -1809,6 +1859,9 @@ function drawSettings() {
         by += bh + gap;
         drawButton(bx, by, bw, bh, 'Go Easy On Me: ' + (assistOn ? 'ON' : 'OFF'), settingsFocus === 3);
         _settingsRects.assist = { x: bx, y: by, w: bw, h: bh };
+        by += bh + gap;
+        drawButton(bx, by, bw, bh, 'Auto Footwork: ' + (autoMoveOn ? 'ON' : 'OFF'), settingsFocus === 9);
+        _settingsRects.automove = { x: bx, y: by, w: bw, h: bh };
         by += bh + gap;
         drawButton(bx, by, bw, bh, 'Sword: ' + weapon().name + ' (' + weapon().realName + ')', settingsFocus === 4);
         _settingsRects.weapon = { x: bx, y: by, w: bw, h: bh };
@@ -1860,11 +1913,16 @@ function drawTutorial() {
     // left a 74px hole above the button in landscape and clipped in portrait.
     var rows;
     if (_isTouchDevice) {
-        rows = [
-            ['HOLD RIGHT', 'Move towards them'],
-            ['HOLD LEFT',  'Back away'],
-            ['TAP',        'Attack'],
-            ['SWIPE DOWN', 'Block']
+        rows = autoMoveOn ? [
+            ['ATTACK', 'Hit them'],
+            ['BLOCK',  'Stop their hit'],
+            ['',       'Your feet move themselves'],
+            ['',       'Two buttons. That is the game.']
+        ] : [
+            ['ATTACK',   'Hit them'],
+            ['BLOCK',    'Stop their hit'],
+            ['IN \u2192', 'Move towards them'],
+            ['\u2190 BACK', 'Back away']
         ];
     } else {
         rows = [
@@ -2122,6 +2180,8 @@ function fxUpdate(dt) {
     if (fxLightL > 0) fxLightL -= dt;
     if (fxLightR > 0) fxLightR -= dt;
     if (fxCrowdHype > 0) fxCrowdHype = Math.max(0, fxCrowdHype - dts * 0.55);
+    if (_btnFlash.attack > 0) _btnFlash.attack -= dt;
+    if (_btnFlash.block > 0) _btnFlash.block -= dt;
     if (bp1 && bp1.scorePop > 0) bp1.scorePop -= dt;
     if (bp2 && bp2.scorePop > 0) bp2.scorePop -= dt;
 }
@@ -2443,8 +2503,8 @@ function claimPriority(f, opp) {
 function startLunge(f, opp) {
     var w = weapon();
     // Second press early in the extend converts the attack into a feint.
-    if (f.act === 'lunge_extend' && !f.feint && f.actElapsed <= FEINT_WINDOW &&
-        f.stamina >= STAM_COST.feint * 0.5) {
+    if ((f.act === 'lunge_extend' || f.act === 'windup') && !f.feint &&
+        f.actElapsed <= FEINT_WINDOW && f.stamina >= STAM_COST.feint * 0.5) {
         f.feint = true;
         f.actT += 165;                       // the disengage costs a real beat
         spend(f, STAM_COST.feint - STAM_COST.lunge);
@@ -2479,11 +2539,21 @@ function startLunge(f, opp) {
     }
 
     spend(f, STAM_COST.lunge);
+    f.feint = false;
+    f.wasRiposte = false;
+    var wind = windupFor(f);
+    if (wind > 0) {
+        // Telegraphed attack: coil, then commit.
+        f.act = 'windup';
+        f.actT = wind;
+        f.actElapsed = 0;
+        claimPriority(f, opp);
+        sfxWindup();
+        return;
+    }
     f.act = 'lunge_extend';
     f.actT = actDur(f, w.tExtend);
     f.actElapsed = 0;
-    f.feint = false;
-    f.wasRiposte = false;
     claimPriority(f, opp);
     sfxLunge();
     fxTrail(f);
@@ -2505,8 +2575,8 @@ function startParry(f, opp) {
     f.actElapsed = 0;
     f.flash = 200;
     // Catch an attack already in flight.
-    var incoming = (opp.act === 'lunge_extend' || opp.act === 'lunge_peak' ||
-                    opp.act === 'riposte');
+    var incoming = (opp.act === 'windup' || opp.act === 'lunge_extend' ||
+                    opp.act === 'lunge_peak' || opp.act === 'riposte');
     var theirs = !w.priority || boutAttacker === opp.side;
     if (incoming && theirs) {
         if (opp.feint) {
@@ -2735,6 +2805,15 @@ function updateFencer(f, opp, dt) {
     f.actElapsed += dt;
     if (f.actT > 0) return;
 
+    if (f.act === 'windup') {
+        f.act = 'lunge_extend';
+        f.actT = actDur(f, w.tExtend);
+        f.actElapsed = 0;
+        sfxLunge();
+        fxTrail(f);
+        fxDust(pisteX(f.pos), 0, f.side === 1 ? 1 : -1);
+        return;
+    }
     if (f.act === 'lunge_extend') {
         f.act = 'lunge_peak';
         f.actT = actDur(f, w.tPeak);
@@ -2818,6 +2897,8 @@ function updateBout(dt) {
         var dts = dt / 1000;
         var w = weapon();
         boutClock = Math.max(0, boutClock - dt);
+
+        updateAutoMove();
 
         // Movement (only while not committed to an action)
         var spd = WALK_SPD * w.walkMul;
@@ -4037,6 +4118,7 @@ function drawPiste(yCenter) {
 // Which sprite pose the current action should draw.
 function fencerPose(f) {
     switch (f.act) {
+        case 'windup':        return 'prep';
         case 'lunge_extend':  return f.actElapsed < 45 ? 'prep' : 'lunge';
         case 'lunge_peak':    return 'lunge';
         case 'riposte':       return 'riposte';
@@ -4195,10 +4277,12 @@ function coachEnabled() {
 }
 
 // Input names differ by device, so the prompt is built from these.
-function keyMove()   { return _isTouchDevice ? 'HOLD RIGHT' : 'PRESS \u2192'; }
-function keyBack()   { return _isTouchDevice ? 'HOLD LEFT'  : 'PRESS \u2190'; }
-function keyHit()    { return _isTouchDevice ? 'TAP'        : 'PRESS \u2191'; }
-function keyBlock()  { return _isTouchDevice ? 'SWIPE DOWN' : 'PRESS \u2193'; }
+// Phrased whole, so the prompt never reads "TAP BLOCK TO BLOCK".
+function cueHitNow()  { return thumbControlsVisible() ? 'TAP ATTACK NOW!' : 'PRESS \u2191 NOW!'; }
+function cueBlock()   { return thumbControlsVisible() ? 'TAP BLOCK!'      : 'PRESS \u2193 TO BLOCK'; }
+function cueHit()     { return thumbControlsVisible() ? 'TAP ATTACK'      : 'PRESS \u2191 TO HIT'; }
+function cueRest()    { return thumbControlsVisible() ? 'TAP BACK TO REST' : 'PRESS \u2190 TO REST'; }
+function cueClose()   { return thumbControlsVisible() ? 'TAP IN TO GET CLOSER' : 'PRESS \u2192 TO GET CLOSER'; }
 
 // What should the player do this instant?
 function coachPrompt() {
@@ -4206,32 +4290,39 @@ function coachPrompt() {
     var w = weapon();
     var gap = Math.abs(bp2.pos - bp1.pos);
     var inRange = gap <= (BODY_R * 2 + reachOf(bp1) + LUNGE_ADVANCE);
-    var theyAttack = (bp2.act === 'lunge_extend' || bp2.act === 'lunge_peak' ||
-                      bp2.act === 'riposte');
+    var theyAttack = (bp2.act === 'windup' || bp2.act === 'lunge_extend' ||
+                      bp2.act === 'lunge_peak' || bp2.act === 'riposte');
 
     // 1. The free hit after a successful block.
     if (bp1.riposteT > 0) {
-        return { text: keyHit() + ' NOW!', sub: 'FREE HIT', color: COLOR_GOLD, urgent: true };
+        return { text: cueHitNow(), sub: 'FREE HIT', color: COLOR_GOLD, urgent: true };
     }
     // 2. Incoming attack.
     if (theyAttack && gap < (BODY_R * 2 + reachOf(bp2) + LUNGE_ADVANCE + 0.5)) {
-        return { text: keyBlock() + ' TO BLOCK', sub: 'THEY ARE ATTACKING', color: '#ff6666', urgent: true };
+        // While they're still coiling, show how long is left to react.
+        var prog = (bp2.act === 'windup')
+            ? Math.max(0, Math.min(1, bp2.actT / Math.max(1, windupFor(bp2)))) : -1;
+        return { text: cueBlock(), sub: 'THEY ARE ATTACKING', color: '#ff6666',
+                 urgent: true, progress: prog };
     }
     // 3. Out of breath — the bar is empty and nothing will work.
     if (bp1.stamina < STAM_TIRED * 0.75) {
-        return { text: keyBack() + ' TO REST', sub: 'YOU ARE OUT OF BREATH', color: '#ffaa44' };
+        return { text: cueRest(), sub: 'YOU ARE OUT OF BREATH', color: '#ffaa44' };
     }
     // 4. They started the attack, so only their hit counts until you block.
     if (w.priority && boutAttacker === 2) {
-        return { text: keyBlock() + ' TO BLOCK', sub: 'THEY WENT FIRST — YOUR HIT WON\'T COUNT', color: '#ff6666' };
+        return { text: cueBlock(), sub: 'THEY WENT FIRST — YOUR HIT WON\'T COUNT', color: '#ff6666' };
     }
     // 5. Close enough to land one.
     if (inRange && bp1.act === 'idle') {
-        return { text: keyHit() + ' TO HIT', sub: 'YOU ARE IN RANGE', color: COLOR_GOLD };
+        return { text: cueHit(), sub: 'YOU ARE IN RANGE', color: COLOR_GOLD };
     }
-    // 6. Too far away.
+    // 6. Too far away — only actionable if the player steers their own feet.
+    if (!inRange && bp1.act === 'idle' && !autoMoveOn) {
+        return { text: cueClose(), sub: 'TOO FAR TO REACH', color: '#9fd8ff' };
+    }
     if (!inRange && bp1.act === 'idle') {
-        return { text: keyMove() + ' TO GET CLOSER', sub: 'TOO FAR TO REACH', color: '#9fd8ff' };
+        return { text: 'CLOSING IN\u2026', sub: 'WAIT FOR RANGE', color: C_TEXT_DIM };
     }
     return null;
 }
@@ -4275,6 +4366,28 @@ function drawPisteWarning(yCenter) {
         pisteX(bp1.pos), yCenter + 20);
 }
 
+// A fencer coiling to attack gets a large flashing warning over their head.
+// Without this the tell is only a pose change, which a new player will miss.
+function drawWindupWarning(yCenter) {
+    if (!bp1 || !bp2) return;
+    var f = null;
+    if (bp2.act === 'windup') f = bp2;
+    else if (twoPlayer && bp1.act === 'windup') f = bp1;
+    if (!f) return;
+
+    // A red glow under whoever is coiling, so it is obvious who to watch.
+    // The countdown itself lives in the coach banner.
+    var x = pisteX(effPos(f));
+    var pulse = 0.55 + 0.45 * Math.sin(performance.now() / 70);
+    var rw = Math.round(52 * boutSpriteSize() / 2.2);
+    ctx.globalAlpha = pulse * 0.85;
+    ctx.fillStyle = C_RED;
+    ctx.fillRect(Math.round(x - rw / 2), yCenter - 4, rw, 5);
+    ctx.globalAlpha = pulse * 0.35;
+    ctx.fillRect(Math.round(x - rw / 2) - 5, yCenter - 8, rw + 10, 4);
+    ctx.globalAlpha = 1;
+}
+
 // Big, unmissable instruction pinned above the action.
 function drawCoachBanner(c, yTop) {
     var p = isPortrait();
@@ -4289,7 +4402,7 @@ function drawCoachBanner(c, yTop) {
     var bx = Math.round(VIEW_W / 2 - bw / 2);
     var by = Math.round(yTop - bh + 6);
 
-    var pulse = c.urgent ? (0.72 + 0.28 * Math.sin(performance.now() / 90)) : 1;
+    var pulse = c.urgent ? (0.86 + 0.14 * Math.sin(performance.now() / 90)) : 1;
     ctx.globalAlpha = pulse;
     ctx.fillStyle = 'rgba(0,0,0,0.82)';
     ctx.fillRect(bx, by, bw, bh);
@@ -4784,15 +4897,93 @@ function boutRematch() {
     startBout(bp1.fencer, bp2.fencer, { twoPlayer: wasTwoPlayer, target: BOUT_TARGET });
 }
 
+// ── Thumb controls ──────────────────────────────────────────────────────────
+//
+// Two big targets in the bottom corners, reachable by one thumb from either
+// hand. Swipes and hold-to-move needed a second finger and precision most
+// players don't want to spend; with auto-footwork on, these two are the whole
+// game. Small step buttons appear only if auto-footwork is switched off.
+var _btnAttack = { x: 0, y: 0, w: 0, h: 0 };
+var _btnBlock  = { x: 0, y: 0, w: 0, h: 0 };
+var _btnStepIn = { x: 0, y: 0, w: 0, h: 0 };
+var _btnStepBack = { x: 0, y: 0, w: 0, h: 0 };
+var _btnFlash = { attack: 0, block: 0 };
+
+function thumbControlsVisible() { return _isTouchDevice && !twoPlayer; }
+
+function drawThumbControls() {
+    if (!thumbControlsVisible()) {
+        _btnAttack = _btnBlock = { x: 0, y: 0, w: 0, h: 0 };
+        _btnStepIn = _btnStepBack = { x: 0, y: 0, w: 0, h: 0 };
+        return;
+    }
+    var p = isPortrait();
+    var bw = Math.round(Math.min(contentW() * 0.42, p ? 150 : 130));
+    var bh = Math.round(p ? 74 : 60);
+    var y = VIEW_H - bh - pad();
+    var lx = contentX();
+    var rx = contentX() + contentW() - bw;
+
+    // Block on the left, attack on the right, matching how they read in the
+    // prompts ("block" defends, "attack" goes forward toward the opponent).
+    drawActionKey(lx, y, bw, bh, 'BLOCK', C_STEEL, _btnFlash.block,
+        bp1 && bp1.act === 'parry');
+    _btnBlock = { x: lx, y: y, w: bw, h: bh };
+
+    var canRiposte = bp1 && bp1.riposteT > 0;
+    drawActionKey(rx, y, bw, bh, canRiposte ? 'HIT NOW!' : 'ATTACK',
+        canRiposte ? C_GOLD : '#c2453f', _btnFlash.attack, false);
+    _btnAttack = { x: rx, y: y, w: bw, h: bh };
+
+    if (!autoMoveOn) {
+        var sw = Math.round(bw * 0.46), sh = Math.round(bh * 0.52);
+        var sy = y - sh - SP * 2;
+        drawActionKey(lx, sy, sw, sh, '\u2190 BACK', C_NAVY_SOFT, 0, bp1Keys.retreat);
+        _btnStepBack = { x: lx, y: sy, w: sw, h: sh };
+        drawActionKey(rx + bw - sw, sy, sw, sh, 'IN \u2192', C_NAVY_SOFT, 0, bp1Keys.advance);
+        _btnStepIn = { x: rx + bw - sw, y: sy, w: sw, h: sh };
+    } else {
+        _btnStepIn = _btnStepBack = { x: 0, y: 0, w: 0, h: 0 };
+    }
+}
+
+function drawActionKey(x, y, w, h, label, tint, flash, held) {
+    var lift = (flash > 0 || held) ? 2 : 0;
+    ctx.globalAlpha = 0.35;
+    drawPixelRoundRect(x + 1, y + 4, w, h, 5, '#00060f');
+    ctx.globalAlpha = 1;
+    drawPixelRoundRect(x, y + lift, w, h - lift, 5, tint);
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x + 5, y + lift + 1, w - 10, 1);
+    ctx.globalAlpha = 0.30;
+    ctx.fillStyle = '#00060f';
+    ctx.fillRect(x + 5, y + h - 2, w - 10, 1);
+    ctx.globalAlpha = 1;
+    if (flash > 0) {
+        ctx.globalAlpha = Math.min(0.5, flash / 160);
+        drawPixelRoundRect(x, y + lift, w, h - lift, 5, '#ffffff');
+        ctx.globalAlpha = 1;
+    }
+    setFont(h >= 56 ? 12 : 9);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(0,6,15,0.5)';
+    ctx.fillText(label, x + w / 2, y + lift + (h - lift) / 2 + 2);
+    ctx.fillStyle = C_TEXT;
+    ctx.fillText(label, x + w / 2, y + lift + (h - lift) / 2 + 1);
+}
+
 // Small quit control, always present — ESC is desktop-only and mobile players
 // were previously locked into a bout until someone reached the target.
 var _boutQuitBtn = { x: 0, y: 0, w: 0, h: 0 };
 function drawBoutQuit() {
     var p = isPortrait();
-    var w = p ? 34 : 28, h = p ? 22 : 18;
+    var w = p ? 36 : 28, h = p ? 22 : 18;
     var x = VIEW_W - SAFE_X - w - 6;
-    var y = VIEW_H - h - 4;
-    ctx.globalAlpha = 0.55;
+    // Keep clear of the thumb buttons in the bottom corners.
+    var y = thumbControlsVisible() ? (scoreboardH() + 6) : (VIEW_H - h - 4);
+    ctx.globalAlpha = thumbControlsVisible() ? 0.85 : 0.55;
     drawPixelRoundRect(x, y, w, h, 2, COLOR_BG_DARK);
     ctx.globalAlpha = 1;
     ctx.font = 'bold ' + (p ? 8 : 7) + 'px ' + FONT;
@@ -4847,13 +5038,15 @@ function drawBout() {
     // Only while the phrase is live — during a halt the call banner already
     // explains what happened, and two overlapping labels read as a glitch.
     if (state === S_BOUT_PLAY) {
+        drawWindupWarning(pisteY);
         drawPriorityIndicator(pisteY);
         drawPisteWarning(pisteY);
     }
     drawScoreRibbon();
     drawBoutMessage(pisteY);
     if (state !== S_BOUT_RESULT) {
-        drawBoutControlsHint(VIEW_H - 10);
+        if (thumbControlsVisible()) drawThumbControls();
+        else drawBoutControlsHint(VIEW_H - 10);
         drawBoutQuit();
     }
 
@@ -5851,6 +6044,7 @@ function onPointerDown(e) {
             if (pointInRect(pt, _settingsRects.music))      { toggleMusicSetting(); return; }
             if (pointInRect(pt, _settingsRects.sfx))        { toggleSfxSetting(); return; }
             if (pointInRect(pt, _settingsRects.assist))     { toggleAssist(); return; }
+            if (pointInRect(pt, _settingsRects.automove))   { toggleAutoMove(); return; }
             if (pointInRect(pt, _settingsRects.weapon))     { cycleWeapon(1); return; }
             if (pointInRect(pt, _settingsRects.difficulty)) { cycleDifficulty(); return; }
             if (pointInRect(pt, _settingsRects.tutorial))   { settingsVisible = false; openTutorial(); return; }
@@ -5952,6 +6146,19 @@ function onPointerDown(e) {
         return;
     }
     if (state === S_BOUT_PLAY) {
+        if (thumbControlsVisible()) {
+            // Buttons only. Swipes and hold-to-move needed a second finger and
+            // precision, which is exactly what one-thumb play cannot give.
+            if (pointInRect(pt, _btnAttack)) {
+                _btnFlash.attack = 160; boutPlayerAttack(); return;
+            }
+            if (pointInRect(pt, _btnBlock)) {
+                _btnFlash.block = 160; startParry(bp1, bp2); return;
+            }
+            if (pointInRect(pt, _btnStepIn))   { setMove('advance'); return; }
+            if (pointInRect(pt, _btnStepBack)) { setMove('retreat'); return; }
+            return;
+        }
         // Track each finger separately so moving and striking can overlap.
         boutTouchStart(e);
         _touchActive = true;
@@ -6026,7 +6233,7 @@ function boutTouchEnd(e) {
         releaseMove(st);
         delete _touches[id];
     });
-    if (!anyMovingTouch()) { bp1Keys.advance = false; bp1Keys.retreat = false; }
+    if (!anyMovingTouch()) { bp1Keys.advance = false; bp1Keys.retreat = false; _manualMove = false; }
 }
 
 function anyMovingTouch() {
@@ -6037,11 +6244,12 @@ function anyMovingTouch() {
 function setMove(dir) {
     bp1Keys.advance = (dir === 'advance');
     bp1Keys.retreat = (dir === 'retreat');
+    _manualMove = !!dir;
 }
 
 function releaseMove(st) {
     if (st) st.moving = false;
-    if (!anyMovingTouch()) { bp1Keys.advance = false; bp1Keys.retreat = false; }
+    if (!anyMovingTouch()) { bp1Keys.advance = false; bp1Keys.retreat = false; _manualMove = false; }
 }
 
 // Tap attacks; a second tap inside the feint window turns it into a feint,
@@ -6054,7 +6262,7 @@ function boutPlayerAttack() {
 // Called every frame from updateBout — promotes a long stationary touch into
 // hold-to-walk once it is clearly neither a tap nor a swipe.
 function updateTouchHold() {
-    if (state !== S_BOUT_PLAY) return;
+    if (state !== S_BOUT_PLAY || thumbControlsVisible()) return;
     var now = performance.now();
     var dir = null;
     for (var k in _touches) {
@@ -6065,17 +6273,25 @@ function updateTouchHold() {
         dir = (st.x0 < VIEW_W / 2) ? 'retreat' : 'advance';
     }
     if (dir) setMove(dir);
-    else if (!anyMovingTouch()) { bp1Keys.advance = false; bp1Keys.retreat = false; }
+    else if (!anyMovingTouch()) { bp1Keys.advance = false; bp1Keys.retreat = false; _manualMove = false; }
 }
 
 function onPointerMove(e) {
-    if (state !== S_BOUT_PLAY) return;
+    if (state !== S_BOUT_PLAY || thumbControlsVisible()) return;
     if (e.preventDefault) e.preventDefault();
     boutTouchMove(e);
 }
 
 function onPointerUp(e) {
-    if (state === S_BOUT_PLAY) boutTouchEnd(e);
+    if (state === S_BOUT_PLAY) {
+        if (thumbControlsVisible()) {
+            bp1Keys.advance = false;
+            bp1Keys.retreat = false;
+            _manualMove = false;
+        } else {
+            boutTouchEnd(e);
+        }
+    }
     _touchActive = false;
 }
 
@@ -6131,6 +6347,7 @@ function onKeyDown(e) {
                 else if (settingsFocus === 6) { settingsVisible = false; openTutorial(); }
                 else if (settingsFocus === 7) { settingsConfirmDelete = 1; settingsFocus = 1; sfxMenuBack(); dirty = true; }
                 else if (settingsFocus === 8) closeSettings();
+                else if (settingsFocus === 9) toggleAutoMove();
             } else {
                 if (settingsFocus === 0) {
                     if (settingsConfirmDelete === 1) { settingsConfirmDelete = 2; sfxBlade(); dirty = true; }
@@ -6307,8 +6524,8 @@ function onKeyDown(e) {
             return;
         }
         // bp2 advances toward bp1, so "retreat" for it is the rightward key.
-        if (k === 'ArrowLeft')  { bp1Keys.retreat = true; e.preventDefault(); return; }
-        if (k === 'ArrowRight') { bp1Keys.advance = true; e.preventDefault(); return; }
+        if (k === 'ArrowLeft')  { bp1Keys.retreat = true; _manualMove = true; e.preventDefault(); return; }
+        if (k === 'ArrowRight') { bp1Keys.advance = true; _manualMove = true; e.preventDefault(); return; }
         if (k === 'ArrowUp' || k === ' ') { startLunge(bp1, bp2); e.preventDefault(); return; }
         if (k === 'ArrowDown') { startParry(bp1, bp2); e.preventDefault(); return; }
     }
@@ -6324,8 +6541,8 @@ function onKeyUp(e) {
         if (k === 'ArrowRight') { bp2Keys.advance = false; return; }
         return;
     }
-    if (k === 'ArrowLeft')  { bp1Keys.retreat = false; return; }
-    if (k === 'ArrowRight') { bp1Keys.advance = false; return; }
+    if (k === 'ArrowLeft')  { bp1Keys.retreat = false; _manualMove = bp1Keys.advance; return; }
+    if (k === 'ArrowRight') { bp1Keys.advance = false; _manualMove = bp1Keys.retreat; return; }
 }
 
 // ── Game loop ──
@@ -6388,6 +6605,7 @@ function init() {
     loadDifficulty();
     loadWeapon();
     loadAssist();
+    loadAutoMove();
     loadStats();
     loadFencersData(function() {
         state = S_TITLE;
@@ -6403,6 +6621,27 @@ window._fenceInit = init;
 // Guarded so it never runs for players.
 if (DEBUG || (typeof window !== 'undefined' && window.location &&
               /127\.0\.0\.1|localhost/.test(window.location.hostname))) {
+    // Map a logical game coordinate to a CSS pixel, so a test can tap exactly
+    // where a control is drawn.
+    window.__pfMap = function (x, y) {
+        var r = canvas.getBoundingClientRect();
+        var dpr = window.devicePixelRatio || 1;
+        return { x: r.left + (x * SCALE) / dpr, y: r.top + (y * SCALE) / dpr };
+    };
+    window.__pfBtn = function (name) {
+        var m = {
+            play: _titleQuickBtn, help: _titleHelpBtn, tourney: _titleTourneyBtn,
+            twop: _title2PBtn, fencer: _titlePracticeBtn, stats: _titleStatsBtn,
+            settings: _titleSettingsBtn,
+            attack: _btnAttack, block: _btnBlock,
+            stepin: _btnStepIn, stepback: _btnStepBack,
+            result: _boutResultBtn, rematch: _boutRematchBtn, quit: _boutQuitBtn,
+            dismiss: settingsVisible ? _settingsRects.close
+                   : (tutorialVisible ? _tutorialBtn : _statsBackBtn)
+        };
+        var r = m[name];
+        return r ? { x: r.x, y: r.y, w: r.w, h: r.h } : null;
+    };
     window.__pfState = function () {
         return {
             state: state,
@@ -6415,6 +6654,7 @@ if (DEBUG || (typeof window !== 'undefined' && window.location &&
             hitGap: +(BODY_R * 2 + weapon().reach + LUNGE_ADVANCE).toFixed(2),
             act1: bp1 ? bp1.act : null,
             act2: bp2 ? bp2.act : null,
+            windup: bp2 ? bp2.act === 'windup' : false,
             attacker: boutAttacker,
             lastCall: boutLastCall,
             riposte: bp1 ? bp1.riposteT > 0 : false,
